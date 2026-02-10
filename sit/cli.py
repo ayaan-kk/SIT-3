@@ -12,6 +12,7 @@ import sys
 from datetime import datetime, timezone
 
 import click
+import pandas as pd
 
 from sit.core.config import load_config, config_hash
 from sit.core.logging import setup_logging, get_logger, reset_logging
@@ -220,6 +221,29 @@ def run(config_path: str):
     a_path = artifact_path(ctx.run_id, ctx.output_dir, fmt)
     write_dataframe(artifacts_df, a_path, fmt)
 
+    # Probe efficiency pipeline (if configured)
+    has_probing = "probing" in config
+    probe_plan_df = None
+    probe_step_df = None
+    probe_eff_df = None
+    probe_overlap_df = None
+    probe_decisions_df = None
+
+    if has_sim and has_probing:
+        from sit.eval.probe_efficiency import run_probe_efficiency
+
+        probe_rng = np.random.RandomState(config["seed"] + 10)
+        result = run_probe_efficiency(world, config, ctx, probe_rng)
+        probe_plan_df = result[0]
+        probe_step_df = result[1]
+        probe_eff_df = result[2]
+        probe_overlap_df = result[3]
+        probe_decisions_df = result[4]
+
+        # Merge probe decisions into main decisions
+        if probe_decisions_df is not None and len(probe_decisions_df) > 0:
+            decisions_df = pd.concat([decisions_df, probe_decisions_df], ignore_index=True)
+
     # Print summary
     click.echo("")
     click.echo("=" * 60)
@@ -268,6 +292,60 @@ def run(config_path: str):
             click.echo(f"  relative L2:    {'PASS' if rel_pass else 'FAIL'}")
         except Exception as e:
             click.echo(f"  relative L2:    ERROR ({e})")
+
+    # Run probe gates if applicable
+    if has_probing and probe_eff_df is not None and len(probe_eff_df) > 0:
+        from sit.eval.gates import (
+            gate_probe_efficiency,
+            gate_probe_diversity,
+        )
+        probe_gates_cfg = config.get("gates", {})
+
+        click.echo("")
+        click.echo("Probe gates:")
+
+        try:
+            p1_pass = gate_probe_efficiency(
+                probe_eff_df,
+                efficiency_ratio=probe_gates_cfg.get("efficiency_ratio", 0.60),
+                recall_target=probe_gates_cfg.get("recall", 0.95),
+                ndcg_target=probe_gates_cfg.get("ndcg", 0.95),
+            )
+            click.echo(f"  P1 (efficiency): {'PASS' if p1_pass else 'FAIL'}")
+        except Exception as e:
+            click.echo(f"  P1 (efficiency): ERROR ({e})")
+            p1_pass = False
+
+        try:
+            p2_pass = gate_probe_diversity(
+                probe_step_df,
+                diversity_ratio=probe_gates_cfg.get("diversity_ratio", 0.85),
+            )
+            click.echo(f"  P2 (diversity):  {'PASS' if p2_pass else 'FAIL'}")
+        except Exception as e:
+            click.echo(f"  P2 (diversity):  ERROR ({e})")
+            p2_pass = False
+
+        click.echo(f"  P3 (replay):     DEFERRED (run replay test separately)")
+
+        if probe_gates_cfg.get("enable", False):
+            if not (p1_pass and p2_pass):
+                click.echo("")
+                click.echo("PROBE GATES FAILED - see details above")
+                # Print budget curve table
+                if probe_step_df is not None:
+                    click.echo("")
+                    click.echo("Budget curve (last checkpoint per policy):")
+                    for policy in probe_step_df["policy_name"].unique():
+                        pdf = probe_step_df[probe_step_df["policy_name"] == policy]
+                        last = pdf.sort_values("step_m").iloc[-1]
+                        click.echo(
+                            f"  {policy:15s}: m={int(last['step_m']):3d} "
+                            f"recall={last['recall_at_k']:.3f} "
+                            f"ndcg={last['ndcg_at_k']:.3f} "
+                            f"rel_L2={last['rel_L2']:.4f}"
+                        )
+                sys.exit(1)
 
     click.echo("=" * 60)
 
