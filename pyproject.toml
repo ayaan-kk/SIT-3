@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sit"
+version = "0.1.0"
+description = "SIT: Spectator Interference Tomography"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+
+dependencies = [
+    "numpy>=1.21",
+    "pandas>=1.4",
+    "scipy>=1.7",
+    "pyyaml>=6.0",
+    "pyarrow>=10.0",
+    "click>=8.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+]
+
+[project.scripts]
+sit = "sit.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["sit*"]
+
+[tool.pytest.ini_options]
+testpaths = ["sit/tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]

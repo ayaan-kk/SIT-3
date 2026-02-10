@@ -1,0 +1,26 @@
+# Generated data
+data/raw/
+data/derived/
+data/figures/
+data/tables/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# pytest
+.pytest_cache/
+
+# OS
+.DS_Store

@@ -1,0 +1,21 @@
+# SIT smoke configuration
+# Minimal run for pipeline validation. Inherits defaults from base.yaml
+# but overrides n_trials for fast execution.
+
+seed: 123
+strict_mode: true
+latency_unit: "us"
+slo_us: 500000
+n_trials: 3
+output_dir: "data"
+export_format: "parquet"
+
+schedulers:
+  - "random"
+
+regimes:
+  mode: "synthetic"
+  n_regimes: 2
+
+logging:
+  level: "INFO"
