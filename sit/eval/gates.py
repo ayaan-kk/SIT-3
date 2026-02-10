@@ -122,23 +122,198 @@ def gate_relative_error(
     return passed
 
 
-def gate_scheduler_safety(max_catastrophes: int = 0) -> bool:
-    """Gate: Scheduler produces zero catastrophic SLO violations.
+def gate_scheduler_safety(
+    trials_df: pd.DataFrame,
+    scheduler_name: str = "sit_safe_ucb",
+    max_catastrophes: int = 0,
+) -> bool:
+    """Gate S1: SIT-safe scheduler produces zero catastrophic events.
 
     Checks that during adversarial testing, the scheduler never places
     a target in a configuration that causes catastrophic tail latency.
 
     Args:
+        trials_df: Schedule trials DataFrame with 'is_catastrophe' column.
+        scheduler_name: Scheduler to evaluate (default sit_safe_ucb).
         max_catastrophes: Maximum allowed catastrophic events (default 0).
 
-    Raises:
-        NotImplementedError: Until scheduler module is implemented.
+    Returns:
+        True if the gate passes.
     """
-    raise NotImplementedError(
-        f"gate_scheduler_safety(max_catastrophes={max_catastrophes}) requires the "
-        "scheduler module to be implemented. This gate will verify that the "
-        "scheduler's safety constraints prevent catastrophic placements."
+    sched_df = trials_df[trials_df["scheduler_name"] == scheduler_name]
+
+    if sched_df.empty:
+        logger.warning("S1 gate: no data for scheduler %s", scheduler_name)
+        return False
+
+    if "is_catastrophe" not in sched_df.columns:
+        logger.warning("S1 gate: missing is_catastrophe column")
+        return False
+
+    n_catastrophes = int(sched_df["is_catastrophe"].sum())
+    passed = n_catastrophes <= max_catastrophes
+
+    logger.info(
+        "S1 (no catastrophes) gate: scheduler=%s, catastrophes=%d, "
+        "max_allowed=%d -> %s",
+        scheduler_name, n_catastrophes, max_catastrophes,
+        "PASS" if passed else "FAIL",
     )
+
+    if not passed:
+        # Log worst catastrophes
+        cats = sched_df[sched_df["is_catastrophe"] == True]
+        worst = cats.nlargest(5, "cvar99_latency_us")
+        logger.warning(
+            "S1 FAILURE REPORT - top catastrophes:\n%s",
+            worst[["episode_id", "target_id", "cvar99_latency_us",
+                    "p99_latency_us", "violation_rate"]].to_string(),
+        )
+
+    return passed
+
+
+def gate_scheduler_tail_improvement(
+    episode_metrics_df: pd.DataFrame,
+    sit_scheduler: str = "sit_safe_ucb",
+    tail_reduction_ratio: float = 0.70,
+    allow_pareto: bool = True,
+    pareto_goodput_ratio: float = 1.10,
+    pareto_cvar_band: float = 0.10,
+) -> bool:
+    """Gate S2: SIT-safe reduces CVaR99 vs best non-partition baseline.
+
+    Either:
+    - SIT-safe CVaR99 <= tail_reduction_ratio * best_non_partition_CVaR99 (30% reduction)
+    OR (if allow_pareto):
+    - SIT-safe goodput >= pareto_goodput_ratio * best_non_partition_goodput
+      at comparable CVaR (within pareto_cvar_band fraction)
+
+    Args:
+        episode_metrics_df: Per-episode metrics DataFrame.
+        sit_scheduler: SIT scheduler name.
+        tail_reduction_ratio: Max allowed CVaR ratio (e.g., 0.70 = 30% reduction).
+        allow_pareto: Allow Pareto-dominance alternative.
+        pareto_goodput_ratio: Minimum goodput improvement for Pareto.
+        pareto_cvar_band: CVaR comparability band.
+
+    Returns:
+        True if the gate passes.
+    """
+    non_partition_baselines = ["random", "round_robin", "mean_greedy", "similarity_avoidance"]
+
+    sit_df = episode_metrics_df[episode_metrics_df["scheduler_name"] == sit_scheduler]
+    if sit_df.empty:
+        logger.warning("S2 gate: no data for %s", sit_scheduler)
+        return False
+
+    sit_cvar = float(sit_df["mean_cvar99"].mean())
+    sit_goodput = float(sit_df["goodput"].mean())
+
+    # Find best non-partition baseline CVaR
+    best_baseline_cvar = float("inf")
+    best_baseline_goodput = 0.0
+    best_baseline_name = ""
+
+    for bl in non_partition_baselines:
+        bl_df = episode_metrics_df[episode_metrics_df["scheduler_name"] == bl]
+        if bl_df.empty:
+            continue
+        bl_cvar = float(bl_df["mean_cvar99"].mean())
+        bl_goodput = float(bl_df["goodput"].mean())
+
+        if bl_cvar < best_baseline_cvar:
+            best_baseline_cvar = bl_cvar
+            best_baseline_goodput = bl_goodput
+            best_baseline_name = bl
+
+    if best_baseline_cvar == float("inf"):
+        logger.warning("S2 gate: no baseline data found")
+        return False
+
+    # Check tail reduction
+    cvar_ratio = sit_cvar / best_baseline_cvar if best_baseline_cvar > 0 else float("inf")
+    tail_pass = cvar_ratio <= tail_reduction_ratio
+
+    # Check Pareto alternative
+    pareto_pass = False
+    if allow_pareto and not tail_pass:
+        cvar_comparable = abs(sit_cvar - best_baseline_cvar) / max(best_baseline_cvar, 1e-6) <= pareto_cvar_band
+        goodput_better = sit_goodput >= pareto_goodput_ratio * best_baseline_goodput
+        pareto_pass = cvar_comparable and goodput_better
+
+    passed = tail_pass or pareto_pass
+
+    logger.info(
+        "S2 (tail improvement) gate: sit_cvar=%.1f, best_baseline_cvar=%.1f (%s), "
+        "ratio=%.3f (target<=%.3f), sit_goodput=%.3f, baseline_goodput=%.3f, "
+        "tail_pass=%s, pareto_pass=%s -> %s",
+        sit_cvar, best_baseline_cvar, best_baseline_name,
+        cvar_ratio, tail_reduction_ratio,
+        sit_goodput, best_baseline_goodput,
+        tail_pass, pareto_pass,
+        "PASS" if passed else "FAIL",
+    )
+
+    return passed
+
+
+def gate_scheduler_replay(
+    decisions_df: pd.DataFrame,
+    episodes: list,
+    scheduler_name: str,
+    x_hat: dict,
+    sigma: dict,
+    safety_config: "SafetyConfig" = None,
+    K: np.ndarray = None,
+    spectator_id_to_idx: dict = None,
+    lambda_div: float = 0.5,
+    slo_us: float = 500000.0,
+    base_seed: int = 0,
+) -> bool:
+    """Gate S3: 100% scheduling decision replay match.
+
+    Replays all SIT-safe decisions and verifies identical placements.
+
+    Args:
+        decisions_df: Schedule decisions DataFrame.
+        episodes: List of Episode objects.
+        scheduler_name: Scheduler to verify.
+        x_hat: Interference estimates.
+        sigma: Uncertainty estimates.
+        safety_config: Safety configuration.
+        K: Kernel matrix.
+        spectator_id_to_idx: Spectator ID to index mapping.
+        lambda_div: Diversity weight.
+        slo_us: SLO threshold.
+        base_seed: Base RNG seed.
+
+    Returns:
+        True if 100% of decisions replay correctly.
+    """
+    from sit.schedule.replay import replay_all_episodes
+
+    total, matches, failed_eps = replay_all_episodes(
+        decisions_df, episodes, scheduler_name,
+        x_hat, sigma, safety_config,
+        K, spectator_id_to_idx, lambda_div, slo_us, base_seed,
+    )
+
+    if total == 0:
+        logger.warning("S3 gate: no decisions to replay for %s", scheduler_name)
+        return True
+
+    passed = (matches == total)
+
+    logger.info(
+        "S3 (replay) gate: scheduler=%s, %d/%d match, "
+        "failed_episodes=%s -> %s",
+        scheduler_name, matches, total,
+        failed_eps[:10] if failed_eps else "none",
+        "PASS" if passed else "FAIL",
+    )
+
+    return passed
 
 
 def gate_probe_efficiency(

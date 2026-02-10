@@ -244,6 +244,61 @@ def run(config_path: str):
         if probe_decisions_df is not None and len(probe_decisions_df) > 0:
             decisions_df = pd.concat([decisions_df, probe_decisions_df], ignore_index=True)
 
+    # Scheduling pipeline (if configured)
+    has_scheduling = "scheduling" in config
+    sched_decisions_df = None
+    sched_trials_df = None
+    sched_episode_df = None
+    sched_failure_df = None
+    sched_heatmap_df = None
+    sched_summary_df = None
+
+    if has_sim and has_scheduling:
+        from sit.eval.scheduling import run_scheduling_evaluation
+
+        sched_rng = np.random.RandomState(config["seed"] + 20)
+        (sched_decisions_df, sched_trials_df, sched_episode_df,
+         sched_failure_df, sched_heatmap_df, sched_summary_df) = \
+            run_scheduling_evaluation(world, config, ctx, sched_rng)
+
+        # Write scheduling outputs
+        derived_base = ctx.derived_path
+        os.makedirs(derived_base, exist_ok=True)
+
+        sched_outputs = {
+            "schedule_decisions": sched_decisions_df,
+            "schedule_trials": sched_trials_df,
+            "schedule_episode_metrics": sched_episode_df,
+            "schedule_failure_audit": sched_failure_df,
+            "schedule_regime_heatmap": sched_heatmap_df,
+        }
+
+        for name, df in sched_outputs.items():
+            if df is not None and len(df) > 0:
+                out_path = os.path.join(derived_base, f"{name}.{fmt}")
+                write_dataframe(df, out_path, fmt)
+                register_artifact(ctx, out_path, "derived")
+                derived_count += 1
+
+        # Also write raw decisions and trials
+        raw_base = ctx.raw_path
+        if sched_decisions_df is not None and len(sched_decisions_df) > 0:
+            sd_path = os.path.join(raw_base, f"schedule_decisions.{fmt}")
+            write_dataframe(sched_decisions_df, sd_path, fmt)
+            register_artifact(ctx, sd_path, "raw")
+
+        if sched_trials_df is not None and len(sched_trials_df) > 0:
+            st_path = os.path.join(raw_base, f"schedule_trials.{fmt}")
+            write_dataframe(sched_trials_df, st_path, fmt)
+            register_artifact(ctx, st_path, "raw")
+
+        # Write summary CSV
+        if sched_summary_df is not None and len(sched_summary_df) > 0:
+            tables_base = os.path.join("results", "tables")
+            os.makedirs(tables_base, exist_ok=True)
+            summary_csv_path = os.path.join(tables_base, "scheduling_summary.csv")
+            sched_summary_df.to_csv(summary_csv_path, index=False)
+
     # Print summary
     click.echo("")
     click.echo("=" * 60)
@@ -345,6 +400,60 @@ def run(config_path: str):
                             f"ndcg={last['ndcg_at_k']:.3f} "
                             f"rel_L2={last['rel_L2']:.4f}"
                         )
+                sys.exit(1)
+
+    # Run scheduling gates if applicable
+    if has_scheduling and sched_trials_df is not None and len(sched_trials_df) > 0:
+        from sit.eval.gates import (
+            gate_scheduler_safety,
+            gate_scheduler_tail_improvement,
+        )
+        sched_gates_cfg = config.get("scheduling", {}).get("gates", config.get("gates", {}))
+
+        click.echo("")
+        click.echo("Scheduling gates:")
+
+        s1_pass = False
+        try:
+            s1_pass = gate_scheduler_safety(
+                sched_trials_df,
+                scheduler_name="sit_safe_ucb",
+                max_catastrophes=0,
+            )
+            click.echo(f"  S1 (no catastrophes): {'PASS' if s1_pass else 'FAIL'}")
+        except Exception as e:
+            click.echo(f"  S1 (no catastrophes): ERROR ({e})")
+
+        s2_pass = False
+        try:
+            s2_pass = gate_scheduler_tail_improvement(
+                sched_episode_df,
+                sit_scheduler="sit_safe_ucb",
+                tail_reduction_ratio=float(sched_gates_cfg.get("tail_reduction_ratio", 0.70)),
+                allow_pareto=sched_gates_cfg.get("allow_pareto_alternative", True),
+            )
+            click.echo(f"  S2 (tail improvement): {'PASS' if s2_pass else 'FAIL'}")
+        except Exception as e:
+            click.echo(f"  S2 (tail improvement): ERROR ({e})")
+
+        click.echo(f"  S3 (replay):           DEFERRED (run replay test separately)")
+
+        # Print scheduling summary table
+        if sched_summary_df is not None and len(sched_summary_df) > 0:
+            click.echo("")
+            click.echo("Scheduling summary:")
+            for _, row in sched_summary_df.iterrows():
+                click.echo(
+                    f"  {row['scheduler_name']:25s}: "
+                    f"cvar99={row['mean_cvar99_us']:10.1f}us "
+                    f"goodput={row['mean_goodput']:.3f} "
+                    f"catastrophes={int(row['n_catastrophes'])}"
+                )
+
+        if sched_gates_cfg.get("enable", False):
+            if not (s1_pass and s2_pass):
+                click.echo("")
+                click.echo("SCHEDULING GATES FAILED - see details above")
                 sys.exit(1)
 
     click.echo("=" * 60)
