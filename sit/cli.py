@@ -76,6 +76,7 @@ def run(config_path: str):
     fmt = config["export_format"]
     timestamp = ctx.created_at_utc
     has_sim = "sim" in config
+    has_tomo = "tomography" in config
 
     if has_sim:
         # Full simulator pipeline
@@ -114,6 +115,18 @@ def run(config_path: str):
         # CI coverage evaluation
         ci_coverage_df = run_ci_coverage_evaluation(config, ci_rng)
 
+        # Tomography pipeline (if configured)
+        tomo_recovery_df = None
+        tomo_diagnostics_df = None
+        tomo_uncertainty_df = None
+
+        if has_tomo:
+            from sit.tomography.pipeline import run_tomography
+
+            tomo_rng = np.random.RandomState(config["seed"] + 5)
+            tomo_recovery_df, tomo_diagnostics_df, tomo_uncertainty_df = \
+                run_tomography(world, config, tomo_rng)
+
     else:
         # Smoke generator (no sim section)
         trials_df, decisions_df = generate_smoke_trials_and_decisions(
@@ -128,6 +141,9 @@ def run(config_path: str):
         events_df = None
         irbs_df = None
         ci_coverage_df = None
+        tomo_recovery_df = None
+        tomo_diagnostics_df = None
+        tomo_uncertainty_df = None
 
     # Validate schema
     trials_df = validate_trials(trials_df)
@@ -181,6 +197,24 @@ def run(config_path: str):
             register_artifact(ctx, ci_path, "derived")
             derived_count += 1
 
+        if tomo_recovery_df is not None and len(tomo_recovery_df) > 0:
+            tr_path = os.path.join(derived_base, f"tomo_recovery.{fmt}")
+            write_dataframe(tomo_recovery_df, tr_path, fmt)
+            register_artifact(ctx, tr_path, "derived")
+            derived_count += 1
+
+        if tomo_diagnostics_df is not None and len(tomo_diagnostics_df) > 0:
+            td_path = os.path.join(derived_base, f"tomo_diagnostics.{fmt}")
+            write_dataframe(tomo_diagnostics_df, td_path, fmt)
+            register_artifact(ctx, td_path, "derived")
+            derived_count += 1
+
+        if tomo_uncertainty_df is not None and len(tomo_uncertainty_df) > 0:
+            tu_path = os.path.join(derived_base, f"tomo_uncertainty.{fmt}")
+            write_dataframe(tomo_uncertainty_df, tu_path, fmt)
+            register_artifact(ctx, tu_path, "derived")
+            derived_count += 1
+
     # Finalize: write artifacts manifest
     artifacts_df = finalize_run(ctx)
     a_path = artifact_path(ctx.run_id, ctx.output_dir, fmt)
@@ -195,7 +229,8 @@ def run(config_path: str):
     click.echo(f"  Config hash:  {ctx.config_hash}")
     click.echo(f"  Git commit:   {ctx.git_commit}")
     click.echo(f"  Seed:         {ctx.seed}")
-    click.echo(f"  Mode:         {'simulator' if has_sim else 'smoke'}")
+    mode = "tomography" if has_tomo else ("simulator" if has_sim else "smoke")
+    click.echo(f"  Mode:         {mode}")
     click.echo(f"  Trials:       {len(trials_df)}")
     click.echo(f"  Decisions:    {len(decisions_df)}")
     click.echo(f"  Artifacts:    {len(artifacts_df)}")
@@ -207,6 +242,33 @@ def run(config_path: str):
     click.echo("")
     click.echo("Validation:")
     click.echo(f"  {report.summary()}")
+
+    # Run tomography gates if applicable
+    if has_tomo and tomo_recovery_df is not None and len(tomo_recovery_df) > 0:
+        from sit.eval.gates import gate_topk_recovery, gate_relative_error
+        tomo_gates_cfg = config.get("tomography", {}).get("gates", {})
+
+        click.echo("")
+        click.echo("Tomography gates:")
+        try:
+            topk_pass = gate_topk_recovery(
+                tomo_recovery_df,
+                target_recall=tomo_gates_cfg.get("target_topk_recall", 0.95),
+                target_ndcg=tomo_gates_cfg.get("target_ndcg", 0.95),
+            )
+            click.echo(f"  top-k recovery: {'PASS' if topk_pass else 'FAIL'}")
+        except Exception as e:
+            click.echo(f"  top-k recovery: ERROR ({e})")
+
+        try:
+            rel_pass = gate_relative_error(
+                tomo_recovery_df,
+                max_rel_l2=tomo_gates_cfg.get("max_relative_l2", 0.10),
+            )
+            click.echo(f"  relative L2:    {'PASS' if rel_pass else 'FAIL'}")
+        except Exception as e:
+            click.echo(f"  relative L2:    ERROR ({e})")
+
     click.echo("=" * 60)
 
 

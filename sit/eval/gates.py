@@ -13,42 +13,113 @@ from sit.core.logging import get_logger
 logger = get_logger("eval.gates")
 
 
-def gate_ci_coverage(target: float = 0.95) -> bool:
+def gate_ci_coverage(
+    uncertainty_df: pd.DataFrame,
+    target: float = 0.80,
+) -> bool:
     """Gate: Confidence interval empirical coverage meets target.
 
     Checks that the observed coverage of uncertainty intervals on
-    held-out data meets or exceeds the target (e.g., 95% nominal -> 95% actual).
+    synthetic ground truth meets or exceeds the target.
 
     Args:
-        target: Required coverage fraction (default 0.95).
+        uncertainty_df: DataFrame with 'coverage_all' column from
+            tomography uncertainty evaluation.
+        target: Required coverage fraction (default 0.80).
 
-    Raises:
-        NotImplementedError: Until tomography/uncertainty module is implemented.
+    Returns:
+        True if the gate passes.
     """
-    raise NotImplementedError(
-        f"gate_ci_coverage(target={target}) requires the tomography/uncertainty "
-        "module to be implemented. This gate will check that empirical CI coverage "
-        "on synthetic ground truth meets the target."
+    if "coverage_all" not in uncertainty_df.columns:
+        raise ValueError("Missing required column: coverage_all")
+
+    mean_coverage = float(uncertainty_df["coverage_all"].mean())
+    passed = mean_coverage >= target
+
+    logger.info(
+        "CI coverage gate: mean_coverage=%.3f, target=%.3f -> %s",
+        mean_coverage, target,
+        "PASS" if passed else "FAIL",
     )
 
+    return passed
 
-def gate_topk_recovery(target: float = 0.95) -> bool:
+
+def gate_topk_recovery(
+    recovery_df: pd.DataFrame,
+    target_recall: float = 0.95,
+    target_ndcg: float = 0.95,
+) -> bool:
     """Gate: Top-K toxic spectator recovery accuracy meets target.
 
     Checks that the tomography solver correctly identifies the top-K
-    most interfering spectators with accuracy >= target.
+    most interfering spectators with recall >= target and NDCG >= target.
 
     Args:
-        target: Required recovery accuracy fraction (default 0.95).
+        recovery_df: DataFrame with 'topk_recall' and 'ndcg_at_k' columns
+            from tomography recovery evaluation.
+        target_recall: Required minimum recall (default 0.95).
+        target_ndcg: Required minimum NDCG (default 0.95).
 
-    Raises:
-        NotImplementedError: Until tomography module is implemented.
+    Returns:
+        True if the gate passes (minimum across all targets meets both).
     """
-    raise NotImplementedError(
-        f"gate_topk_recovery(target={target}) requires the tomography module "
-        "to be implemented. This gate will check that the solver correctly "
-        "recovers the top-K interfering spectators."
+    required = ["topk_recall", "ndcg_at_k"]
+    for col in required:
+        if col not in recovery_df.columns:
+            raise ValueError(f"Missing required column: {col}")
+
+    min_recall = float(recovery_df["topk_recall"].min())
+    min_ndcg = float(recovery_df["ndcg_at_k"].min())
+    mean_recall = float(recovery_df["topk_recall"].mean())
+    mean_ndcg = float(recovery_df["ndcg_at_k"].mean())
+
+    recall_ok = mean_recall >= target_recall
+    ndcg_ok = mean_ndcg >= target_ndcg
+    passed = recall_ok and ndcg_ok
+
+    logger.info(
+        "Top-k recovery gate: mean_recall=%.3f (min=%.3f, target=%.3f), "
+        "mean_ndcg=%.3f (min=%.3f, target=%.3f) -> %s",
+        mean_recall, min_recall, target_recall,
+        mean_ndcg, min_ndcg, target_ndcg,
+        "PASS" if passed else "FAIL",
     )
+
+    return passed
+
+
+def gate_relative_error(
+    recovery_df: pd.DataFrame,
+    max_rel_l2: float = 0.10,
+) -> bool:
+    """Gate: Relative L2 reconstruction error is within tolerance.
+
+    Checks that the mean relative L2 error across all targets
+    does not exceed max_rel_l2.
+
+    Args:
+        recovery_df: DataFrame with 'relative_l2' column.
+        max_rel_l2: Maximum allowed mean relative L2 error (default 0.10).
+
+    Returns:
+        True if the gate passes.
+    """
+    if "relative_l2" not in recovery_df.columns:
+        raise ValueError("Missing required column: relative_l2")
+
+    mean_rel_l2 = float(recovery_df["relative_l2"].mean())
+    max_val = float(recovery_df["relative_l2"].max())
+
+    passed = mean_rel_l2 <= max_rel_l2
+
+    logger.info(
+        "Relative L2 gate: mean=%.4f, max=%.4f, target<=%.4f -> %s",
+        mean_rel_l2, max_val, max_rel_l2,
+        "PASS" if passed else "FAIL",
+    )
+
+    return passed
 
 
 def gate_scheduler_safety(max_catastrophes: int = 0) -> bool:

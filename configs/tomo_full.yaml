@@ -1,0 +1,100 @@
+# SIT tomography full configuration
+# Larger problem for thorough evaluation.
+
+seed: 7
+strict_mode: false
+latency_unit: "us"
+slo_us: 500000
+n_trials: 50
+output_dir: "data"
+export_format: "parquet"
+
+schedulers:
+  - "measurement_harness"
+
+regimes:
+  mode: "synthetic"
+  n_regimes: 2
+
+logging:
+  level: "INFO"
+
+sim:
+  n_targets: 5
+  n_spectators: 30
+  n_regimes: 2
+  n_samples_per_micro_run: 2000
+
+  drift:
+    type: "linear"
+    a_us_per_step: 50.0
+
+  channels:
+    weights:
+      LLC: 1.0
+      MEM_BW: 1.2
+      IO: 0.7
+      TLB: 0.5
+      SMT: 0.6
+    scale_us: 100.0
+
+  toxic_pairs:
+    enabled: true
+    sparsity: 0.08
+    lognormal_mu: 0.5
+    lognormal_sigma: 0.7
+
+  queue:
+    enabled: true
+    concurrency: 16
+    think_time_us: 50.0
+
+  burst:
+    enabled: true
+    p_burst: 0.002
+    pareto_alpha: 2.5
+    scale_us: 5000.0
+
+  interactions:
+    enabled: false
+    gamma: 0.01
+
+measurement:
+  alpha: 0.99
+  ci_resamples: 500
+  block_bootstrap: true
+  block_size: 64
+  n_irbs_pairs: 5
+  irbs:
+    drift_order: 1
+    design: "CTC"
+
+tomography:
+  probe:
+    strategy: "coverage_aware"
+    m_probes: 120
+    set_size: 3
+    max_repeats: 30
+  stat: "cvar99"
+  use_irbs: true
+  solver:
+    lambda_1: 0.005
+    lambda_2: 0.01
+    max_iter: 10000
+    cross_validate: true
+    cv_folds: 5
+  diagnostics:
+    enabled: true
+    max_cond: 100.0
+    min_coverage: 2.0
+    max_coherence: 0.95
+    mitigate: true
+    extra_probes: 40
+  uncertainty:
+    enabled: true
+    n_resamples: 200
+    alpha: 0.05
+  gates:
+    target_topk_recall: 0.95
+    target_ndcg: 0.95
+    max_relative_l2: 0.10
