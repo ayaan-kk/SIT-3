@@ -54,11 +54,16 @@ def cli():
 def run(config_path: str):
     """Run the SIT pipeline.
 
-    Creates a new run, generates data (smoke or full), validates,
+    Creates a new run, generates data (smoke or sim), validates,
     writes raw tables, and produces an artifacts manifest.
+
+    If the config contains a 'sim' section, runs the full simulator.
+    Otherwise, runs the placeholder smoke generator.
     """
     # Reset logging for fresh run
     reset_logging()
+
+    import numpy as np
 
     # Load config
     config = load_config(config_path)
@@ -70,18 +75,59 @@ def run(config_path: str):
 
     fmt = config["export_format"]
     timestamp = ctx.created_at_utc
+    has_sim = "sim" in config
 
-    # Generate smoke data
-    trials_df, decisions_df = generate_smoke_trials_and_decisions(
-        config=config,
-        run_id=ctx.run_id,
-        config_hash=ctx.config_hash,
-        git_commit=ctx.git_commit,
-    )
+    if has_sim:
+        # Full simulator pipeline
+        from sit.sim.pipeline import (
+            run_sim_trials,
+            run_sim_decisions,
+            run_irbs_evaluation,
+            run_ci_coverage_evaluation,
+        )
+        from sit.sim.world import build_world, ground_truth_to_dataframe
 
-    # Fill in timestamps
-    trials_df["created_at_utc"] = timestamp
-    decisions_df["created_at_utc"] = timestamp
+        rng = np.random.RandomState(config["seed"])
+        world = build_world(config, rng)
+
+        # Use separate RNG streams for each phase (deterministic)
+        trial_rng = np.random.RandomState(config["seed"] + 1)
+        decision_rng = np.random.RandomState(config["seed"] + 2)
+        irbs_rng = np.random.RandomState(config["seed"] + 3)
+        ci_rng = np.random.RandomState(config["seed"] + 4)
+
+        trials_df = run_sim_trials(
+            world, config, ctx.run_id, ctx.config_hash,
+            ctx.git_commit, timestamp, trial_rng,
+        )
+        decisions_df = run_sim_decisions(
+            world, config, ctx.run_id, ctx.config_hash,
+            ctx.git_commit, timestamp, decision_rng,
+        )
+
+        # Ground truth
+        gt_df = ground_truth_to_dataframe(world)
+
+        # IRBS evaluation
+        events_df, irbs_df = run_irbs_evaluation(world, config, irbs_rng)
+
+        # CI coverage evaluation
+        ci_coverage_df = run_ci_coverage_evaluation(config, ci_rng)
+
+    else:
+        # Smoke generator (no sim section)
+        trials_df, decisions_df = generate_smoke_trials_and_decisions(
+            config=config,
+            run_id=ctx.run_id,
+            config_hash=ctx.config_hash,
+            git_commit=ctx.git_commit,
+        )
+        trials_df["created_at_utc"] = timestamp
+        decisions_df["created_at_utc"] = timestamp
+        gt_df = None
+        events_df = None
+        irbs_df = None
+        ci_coverage_df = None
 
     # Validate schema
     trials_df = validate_trials(trials_df)
@@ -104,13 +150,41 @@ def run(config_path: str):
     register_artifact(ctx, t_path, "raw")
     register_artifact(ctx, d_path, "raw")
 
+    # Write derived data if sim mode
+    derived_count = 0
+    if has_sim:
+        import os
+        derived_base = ctx.derived_path
+        os.makedirs(derived_base, exist_ok=True)
+
+        if gt_df is not None and len(gt_df) > 0:
+            gt_path = os.path.join(derived_base, f"ground_truth.{fmt}")
+            write_dataframe(gt_df, gt_path, fmt)
+            register_artifact(ctx, gt_path, "derived")
+            derived_count += 1
+
+        if events_df is not None and len(events_df) > 0:
+            ev_path = os.path.join(derived_base, f"measurement_events.{fmt}")
+            write_dataframe(events_df, ev_path, fmt)
+            register_artifact(ctx, ev_path, "derived")
+            derived_count += 1
+
+        if irbs_df is not None and len(irbs_df) > 0:
+            ir_path = os.path.join(derived_base, f"irbs_estimates.{fmt}")
+            write_dataframe(irbs_df, ir_path, fmt)
+            register_artifact(ctx, ir_path, "derived")
+            derived_count += 1
+
+        if ci_coverage_df is not None and len(ci_coverage_df) > 0:
+            ci_path = os.path.join(derived_base, f"tail_ci_coverage.{fmt}")
+            write_dataframe(ci_coverage_df, ci_path, fmt)
+            register_artifact(ctx, ci_path, "derived")
+            derived_count += 1
+
     # Finalize: write artifacts manifest
     artifacts_df = finalize_run(ctx)
     a_path = artifact_path(ctx.run_id, ctx.output_dir, fmt)
     write_dataframe(artifacts_df, a_path, fmt)
-
-    # Re-register the manifest itself (chicken-and-egg: manifest doesn't include itself)
-    # This is intentional - the manifest records pre-manifest artifacts only.
 
     # Print summary
     click.echo("")
@@ -121,9 +195,12 @@ def run(config_path: str):
     click.echo(f"  Config hash:  {ctx.config_hash}")
     click.echo(f"  Git commit:   {ctx.git_commit}")
     click.echo(f"  Seed:         {ctx.seed}")
+    click.echo(f"  Mode:         {'simulator' if has_sim else 'smoke'}")
     click.echo(f"  Trials:       {len(trials_df)}")
     click.echo(f"  Decisions:    {len(decisions_df)}")
     click.echo(f"  Artifacts:    {len(artifacts_df)}")
+    if has_sim:
+        click.echo(f"  Derived:      {derived_count} files")
     click.echo(f"  Output dir:   {ctx.raw_path}")
     click.echo(f"  Latency unit: {CANONICAL_LATENCY_UNIT}")
     click.echo(f"  Schema ver:   {SCHEMA_VERSION}")
