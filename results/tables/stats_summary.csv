@@ -1,0 +1,8 @@
+section,item,metric,value,detail
+GATES,R1,overall,PASS,"{'min_coverage': 0.9, 'mean': {'empirical_coverage': 0.98, 'n_repeats': 50, 'status': 'PASS'}, 'p99': {'empirical_coverage': 0.94, 'n_repeats': 50, 'status': 'PASS'}, 'cvar99': {'empirical_coverage': 0.92, 'n_repeats': 50, 'status': 'PASS'}}"
+CI_CALIBRATION,cvar99,empirical_coverage,0.920,"n_covered=46, n_total=50, nominal=0.95"
+CI_CALIBRATION,mean,empirical_coverage,0.980,"n_covered=49, n_total=50, nominal=0.95"
+CI_CALIBRATION,p99,empirical_coverage,0.940,"n_covered=47, n_total=50, nominal=0.95"
+ROBUSTNESS,sweep_summary,safety_fraction,1.000,"n_safe=27, n_total=27"
+ROBUSTNESS,sweep_summary,pareto_fraction,0.111,"n_pareto=3, n_total=27"
+ROBUSTNESS,sweep_summary,worst_catastrophe_rate,0.000000,
