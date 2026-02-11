@@ -1,2 +1,2 @@
-timestamp,iteration,n_policies,n_total_rows,sit_mean_cvar99,sit_mean_goodput,sit_total_catastrophes,n_dominated_comparisons,n_total_comparisons,dominance_rate,notes
-2026-02-11T05:02:13.261281+00:00,1,19,91200,34665.28,0.9999,0,318,432,0.7361,Initial full run
+timestamp,iteration,n_policies,n_total_rows,sit_mean_cvar99,sit_effective_goodput_rps,sit_total_catastrophes,n_dominated_comparisons,n_total_comparisons,dominance_rate,notes
+2026-02-11T05:49:03.307867+00:00,1,19,91200,41347.84,8396.23,0,311,432,0.7199,Initial full run

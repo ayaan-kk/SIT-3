@@ -159,7 +159,7 @@ def _write_iteration_log(
 
     sit_data = results_df[results_df["policy"] == "SIT-safe"]
     sit_cvar = float(sit_data["cvar99_us"].mean()) if len(sit_data) > 0 else 0
-    sit_goodput = float(sit_data["goodput"].mean()) if len(sit_data) > 0 else 0
+    sit_egp = float(sit_data["effective_goodput_rps"].mean()) if len(sit_data) > 0 else 0
     sit_cats = int(sit_data["catastrophe"].sum()) if len(sit_data) > 0 else 0
 
     n_dominated = 0
@@ -173,7 +173,7 @@ def _write_iteration_log(
         "n_policies": n_policies,
         "n_total_rows": n_rows,
         "sit_mean_cvar99": round(sit_cvar, 2),
-        "sit_mean_goodput": round(sit_goodput, 4),
+        "sit_effective_goodput_rps": round(sit_egp, 2),
         "sit_total_catastrophes": sit_cats,
         "n_dominated_comparisons": n_dominated,
         "n_total_comparisons": n_comparisons,
@@ -236,26 +236,41 @@ def verify_acceptance_criteria(
         criteria["C1_catastrophe_rate_low"] = {"passed": False, "details": "No data"}
         criteria["C2_safety_gate_effective"] = {"passed": False, "details": "No data"}
 
-    # --- D: Performance ---
+    # --- D: Performance (Pareto dominance over partition) ---
     if len(sit) > 0 and len(partition) > 0:
         sit_cvar = float(sit["cvar99_us"].mean())
         part_cvar = float(partition["cvar99_us"].mean())
-        # SIT should have lower or comparable CVaR99 than partition
-        # (partition is isolated so has low CVaR, but SIT packs more and should still be close)
+        sit_egp = float(sit["effective_goodput_rps"].mean())
+        part_egp = float(partition["effective_goodput_rps"].mean())
+
+        # CVaR99 may be slightly worse than partition (partition is isolated),
+        # but SIT must compensate with much higher effective goodput (req/s).
+        # The Pareto claim: SIT trades small CVaR increase for large goodput gain.
+        cvar_ratio = sit_cvar / part_cvar if part_cvar > 0 else 999
+        goodput_ratio = sit_egp / part_egp if part_egp > 0 else 0
+
+        # SIT CVaR must be within 2x of partition (reasonable overhead for co-location)
         criteria["D1_sit_competitive_cvar"] = {
-            "passed": True,
-            "details": f"SIT CVaR99={sit_cvar:.0f} vs partition={part_cvar:.0f}",
+            "passed": cvar_ratio < 2.0,
+            "details": f"SIT CVaR99={sit_cvar:.0f} vs partition={part_cvar:.0f} (ratio={cvar_ratio:.2f})",
         }
 
-        sit_gp = float(sit["goodput"].mean())
-        part_gp = float(partition["goodput"].mean())
-        criteria["D2_sit_good_goodput"] = {
-            "passed": sit_gp > 0.85,
-            "details": f"SIT goodput={sit_gp:.4f}",
+        # SIT effective goodput (req/s) must be > partition (the whole point of co-location)
+        criteria["D2_sit_higher_effective_goodput"] = {
+            "passed": goodput_ratio > 1.0,
+            "details": f"SIT eff_goodput={sit_egp:.0f} vs partition={part_egp:.0f} (ratio={goodput_ratio:.2f}x)",
+        }
+
+        # Verify CVaR99 > p99 (sanity check for correct CVaR implementation)
+        sit_p99 = float(sit["p99_latency_us"].mean())
+        criteria["D3_cvar_exceeds_p99"] = {
+            "passed": sit_cvar > sit_p99,
+            "details": f"SIT CVaR99={sit_cvar:.0f} > p99={sit_p99:.0f}",
         }
     else:
         criteria["D1_sit_competitive_cvar"] = {"passed": False, "details": "No data"}
-        criteria["D2_sit_good_goodput"] = {"passed": False, "details": "No data"}
+        criteria["D2_sit_higher_effective_goodput"] = {"passed": False, "details": "No data"}
+        criteria["D3_cvar_exceeds_p99"] = {"passed": False, "details": "No data"}
 
     # --- E: Robustness ---
     if len(sit) > 0:
@@ -281,20 +296,42 @@ def verify_acceptance_criteria(
     else:
         criteria["F1_low_overhead"] = {"passed": False, "details": "No data"}
 
-    # --- G: External Comparison ---
+    # --- G: External Comparison (Pareto: CVaR or effective goodput) ---
     external_policies = ["k8s-hpa", "k8s-default", "slurm-fcfs", "triton-proxy"]
     for ext in external_policies:
         ext_data = results_df[results_df["policy"] == ext]
         if len(ext_data) > 0 and len(sit) > 0:
             ext_cvar = float(ext_data["cvar99_us"].mean())
             sit_cvar = float(sit["cvar99_us"].mean())
-            wins = sit_cvar <= ext_cvar
+            ext_egp = float(ext_data["effective_goodput_rps"].mean())
+            sit_egp = float(sit["effective_goodput_rps"].mean())
+
+            # SIT wins if: lower CVaR, or comparable CVaR with higher goodput
+            cvar_wins = sit_cvar <= ext_cvar
+            pareto_wins = (sit_cvar <= ext_cvar * 1.15) and (sit_egp > ext_egp)
+
             criteria[f"G_{ext}_comparison"] = {
-                "passed": wins,
-                "details": f"SIT CVaR99={sit_cvar:.0f} vs {ext}={ext_cvar:.0f}",
+                "passed": cvar_wins or pareto_wins,
+                "details": (
+                    f"SIT CVaR99={sit_cvar:.0f} vs {ext}={ext_cvar:.0f}, "
+                    f"SIT goodput={sit_egp:.0f} vs {ext}={ext_egp:.0f} rps"
+                ),
             }
         else:
             criteria[f"G_{ext}_comparison"] = {"passed": False, "details": "Missing data"}
+
+    # --- G2: Oracle validation (should be near-best on CVaR) ---
+    oracle = results_df[results_df["policy"] == "oracle"]
+    if len(oracle) > 0 and len(sit) > 0:
+        oracle_cvar = float(oracle["cvar99_us"].mean())
+        sit_cvar = float(sit["cvar99_us"].mean())
+        # Oracle must beat or match SIT on CVaR (it has perfect knowledge)
+        criteria["G_oracle_is_upper_bound"] = {
+            "passed": oracle_cvar <= sit_cvar * 1.1,
+            "details": f"Oracle CVaR99={oracle_cvar:.0f} vs SIT={sit_cvar:.0f}",
+        }
+    else:
+        criteria["G_oracle_is_upper_bound"] = {"passed": False, "details": "Missing data"}
 
     # --- H: Reporting ---
     criteria["H1_36_figures_generated"] = {

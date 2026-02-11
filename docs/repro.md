@@ -39,7 +39,7 @@ available on all platforms.
 | probe | N/A | N/A | not run |
 | tomography | N/A | N/A | not run |
 | scheduling | N/A | N/A | not run |
-| load | b3527710-ca3... | 6e0ee932f6c4... | completed |
+| load | 4d177009-47f... | 6e0ee932f6c4... | completed |
 | stats | N/A | N/A | not run |
 | failure | N/A | N/A | not run |
 | hardware | N/A | N/A | not run |
@@ -48,7 +48,7 @@ available on all platforms.
 
 Total artifacts: 14
 
-Manifest location: `data/derived/c0646a8c-ada0-4b35-be51-71568826d4bd/artifact_manifest.parquet`
+Manifest location: `data/derived/052d1798-965b-42d5-93a3-a4d25c8e5dc8/artifact_manifest.parquet`
 
 | Type | Count |
 |------|-------|
@@ -76,6 +76,6 @@ For a reviewer to verify results:
 6. Review results/tables/final_summary.csv for key metrics
 7. Review results/reports/summary.md for narrative interpretation
 
-Master run ID: `c0646a8c-ada0-4b35-be51-71568826d4bd`
+Master run ID: `052d1798-965b-42d5-93a3-a4d25c8e5dc8`
 
-Generated at: 2026-02-11T05:02:52.690479+00:00
+Generated at: 2026-02-11T05:49:23.042700+00:00

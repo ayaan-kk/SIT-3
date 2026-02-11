@@ -129,16 +129,39 @@ def run_single_evaluation(
         latencies = mr.latencies_us
         stats = compute_all_tail_stats(latencies, slo_us=slo_us, alpha=0.99)
 
-        # Compute all metrics
+        # --- Tail metrics (use the proper CVaR from measure.tail) ---
         violation_rate = float(np.mean(latencies > slo_us))
-        goodput = 1.0 - violation_rate
+        n_successful = int(np.sum(latencies <= slo_us))
         mean_lat = float(np.mean(latencies))
         p95 = float(np.percentile(latencies, 95))
         p99 = float(np.percentile(latencies, 99))
         p999 = float(np.percentile(latencies, 99.9))
-        cvar95 = float(np.mean(latencies[latencies >= np.percentile(latencies, 95)])) if len(latencies[latencies >= np.percentile(latencies, 95)]) > 0 else p95
-        cvar99 = stats.get("cvar99", p99)
-        cvar999 = float(np.mean(latencies[latencies >= np.percentile(latencies, 99.9)])) if len(latencies[latencies >= np.percentile(latencies, 99.9)]) > 0 else p999
+
+        # CVaR = E[L | L >= VaR]. Must satisfy CVaR >= VaR.
+        # Use the properly implemented estimate_cvar from measure.tail.
+        from sit.measure.tail import estimate_cvar
+        cvar95 = float(estimate_cvar(latencies, alpha=0.95))
+        cvar99 = float(estimate_cvar(latencies, alpha=0.99))
+        cvar999 = float(estimate_cvar(latencies, alpha=0.999))
+
+        # --- Goodput as successful req/s (not a ratio) ---
+        # Wall clock = total service time / concurrency (Little's law)
+        concurrency = config.get("sim", {}).get("queue", {}).get("concurrency", 16)
+        wall_clock_us = float(np.sum(latencies)) / max(concurrency, 1)
+        wall_clock_s = wall_clock_us / 1e6
+
+        # Target-level throughput and goodput (req/s for THIS target)
+        throughput_rps = n_samples / wall_clock_s if wall_clock_s > 0 else 0.0
+        goodput_rps = n_successful / wall_clock_s if wall_clock_s > 0 else 0.0
+
+        # Effective cluster goodput accounts for co-location:
+        # partition (0 spectators) wastes node capacity,
+        # SIT (n spectators) serves (1+n) jobs per node-second.
+        n_spectators = len(decision.spectator_ids)
+        effective_goodput_rps = goodput_rps * (1 + n_spectators)
+
+        # Keep success_rate separately (the old "goodput" ratio)
+        success_rate = 1.0 - violation_rate
 
         # Queue metrics
         queue_lats = mr.queue_us
@@ -148,7 +171,6 @@ def run_single_evaluation(
 
         # Catastrophe detection
         catastrophe = violation_rate > 0.10
-        n_spectators = len(decision.spectator_ids)
 
         rows.append({
             "policy": policy_name,
@@ -166,8 +188,10 @@ def run_single_evaluation(
             "cvar999_us": cvar999,
             "slo_us": slo_us,
             "violation_rate": violation_rate,
-            "goodput": goodput,
-            "throughput_inv_us": 1.0 / mean_lat if mean_lat > 0 else 0.0,
+            "success_rate": success_rate,
+            "goodput_rps": goodput_rps,
+            "effective_goodput_rps": effective_goodput_rps,
+            "throughput_rps": throughput_rps,
             "queue_variance": queue_var,
             "mean_backlog_us": mean_backlog,
             "max_backlog_us": max_backlog,

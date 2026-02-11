@@ -333,7 +333,12 @@ def admission_only_policy(target, world, regime, config, rng, **kw):
 
 
 def oracle_policy(target, world, regime, config, rng, **kw):
-    """Oracle: perfect ground-truth knowledge, optimal selection."""
+    """Oracle: perfect ground-truth knowledge, optimal selection.
+
+    Oracle knows exact interference values and picks the minimum-interference
+    spectators that keep predicted latency under SLO. This is the theoretical
+    upper bound on any estimation-based policy.
+    """
     gt = world.ground_truth.get(regime.regime_id, {})
     tid = target.workload_id
     n_specs = config.get("n_spectators_per_placement", 3)
@@ -343,17 +348,22 @@ def oracle_policy(target, world, regime, config, rng, **kw):
     candidates = [(s.workload_id, gt.get((tid, s.workload_id), 0.0)) for s in world.spectators]
     candidates.sort(key=lambda x: x[1])
 
+    # Oracle uses a moderate SLO budget. Even with perfect mean knowledge,
+    # tails (CVaR) can exceed the mean prediction due to queue/burst effects.
+    # Use 0.80 as the safety margin to account for tail behavior.
     selected = []
     total = 0.0
     for sid, interference in candidates:
         if len(selected) >= n_specs:
             break
-        if target.base_service_us_mean + total + interference < slo_us * 0.7:
+        predicted = target.base_service_us_mean + total + interference
+        if predicted < slo_us * 0.80:
             selected.append(sid)
             total += interference
 
     if not selected:
         selected = [candidates[0][0]]
+        total = candidates[0][1]
 
     return PlacementDecision(
         scheduler_name="oracle",
@@ -362,6 +372,7 @@ def oracle_policy(target, world, regime, config, rng, **kw):
         score=total,
         safety_pass=True,
         score_components={"ground_truth_access": True},
+        predicted_cvar99=target.base_service_us_mean + total,
     )
 
 

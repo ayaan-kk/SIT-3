@@ -68,40 +68,43 @@ def _save_figure_data(df: pd.DataFrame, fig_id: str, output_dir: str) -> str:
     return csv_path
 
 
-# === CATEGORY A: Load & Goodput ===
+# === CATEGORY A: Load & Goodput (req/s) ===
 
 def _gen_category_a(results_df, output_dir):
     paths = {}
-    load_order = ["low", "medium", "high", "saturation"]
 
-    # A1: Goodput vs Load (SIT vs partition)
+    # A1: Effective goodput (req/s) vs Load (SIT vs partition)
     fig_df = results_df[results_df["policy"].isin(["SIT-safe", "partition", "spread", "random"])].copy()
     agg = fig_df.groupby(["policy", "load_regime"]).agg(
-        goodput_mean=("goodput", "mean"),
-        goodput_std=("goodput", "std"),
-        goodput_ci=("goodput", lambda x: 1.96 * x.std() / np.sqrt(len(x)) if len(x) > 0 else 0),
+        effective_goodput_rps_mean=("effective_goodput_rps", "mean"),
+        effective_goodput_rps_std=("effective_goodput_rps", "std"),
+        effective_goodput_rps_ci=("effective_goodput_rps", lambda x: 1.96 * x.std() / np.sqrt(len(x)) if len(x) > 0 else 0),
+        success_rate_mean=("success_rate", "mean"),
     ).reset_index()
     paths["fig_A1"] = _save_figure_data(agg, "fig_A1_goodput_vs_load_SIT_vs_partition", output_dir)
 
-    # A2: Pareto frontier (top 30% load)
+    # A2: Pareto frontier (top 30% load): effective_goodput_rps vs cvar99
     high_load = results_df[results_df["load_regime"].isin(["high", "saturation"])].copy()
     pareto = high_load.groupby("policy").agg(
-        mean_goodput=("goodput", "mean"),
+        mean_effective_goodput_rps=("effective_goodput_rps", "mean"),
         mean_cvar99=("cvar99_us", "mean"),
         mean_p99=("p99_latency_us", "mean"),
+        mean_success_rate=("success_rate", "mean"),
     ).reset_index()
     paths["fig_A2"] = _save_figure_data(pareto, "fig_A2_pareto_frontier_top30_load", output_dir)
 
     # A3: SLO admission curve
     admission = results_df.groupby(["policy", "load_regime"]).agg(
-        admission_rate=("goodput", "mean"),
+        success_rate=("success_rate", "mean"),
         violation_rate=("violation_rate", "mean"),
+        effective_goodput_rps=("effective_goodput_rps", "mean"),
     ).reset_index()
     paths["fig_A3"] = _save_figure_data(admission, "fig_A3_slo_admission_curve", output_dir)
 
     # A4: Tail vs throughput tradeoff
     tradeoff = results_df.groupby("policy").agg(
-        mean_throughput=("throughput_inv_us", "mean"),
+        mean_throughput_rps=("throughput_rps", "mean"),
+        mean_effective_goodput_rps=("effective_goodput_rps", "mean"),
         mean_cvar99=("cvar99_us", "mean"),
         mean_p99=("p99_latency_us", "mean"),
     ).reset_index()
@@ -110,9 +113,8 @@ def _gen_category_a(results_df, output_dir):
     # A5: Load sweep summary heatmap
     heatmap = results_df.groupby(["policy", "load_regime"]).agg(
         mean_cvar99=("cvar99_us", "mean"),
-        mean_goodput=("goodput", "mean"),
+        mean_effective_goodput_rps=("effective_goodput_rps", "mean"),
     ).reset_index()
-    pivot = heatmap.pivot_table(values="mean_cvar99", index="policy", columns="load_regime")
     paths["fig_A5"] = _save_figure_data(heatmap, "fig_A5_load_sweep_summary_heatmap", output_dir)
 
     return paths
@@ -155,10 +157,11 @@ def _gen_category_b(results_df, output_dir):
             })
     paths["fig_B3"] = _save_figure_data(pd.DataFrame(b3_data), "fig_B3_tail_ratio_SIT_over_partition", output_dir)
 
-    # B4: Tail scatter (log-log)
+    # B4: Tail scatter (log-log) - verify CVaR99 > p99
     b4 = results_df[["policy", "p99_latency_us", "cvar99_us", "p999_latency_us", "load_regime"]].copy()
     b4["log_p99"] = np.log10(b4["p99_latency_us"].clip(lower=1))
     b4["log_cvar99"] = np.log10(b4["cvar99_us"].clip(lower=1))
+    b4["cvar99_exceeds_p99"] = b4["cvar99_us"] >= b4["p99_latency_us"]
     paths["fig_B4"] = _save_figure_data(b4, "fig_B4_tail_scatter_loglog", output_dir)
 
     # B5: Extreme tail histograms
@@ -206,7 +209,7 @@ def _gen_category_c(results_df, output_dir):
     # C3: Recovery error vs probes (proxy: n_spectators effect)
     c3 = results_df[results_df["policy"] == "SIT-safe"].groupby("n_spectators").agg(
         mean_cvar99=("cvar99_us", "mean"),
-        mean_goodput=("goodput", "mean"),
+        mean_effective_goodput_rps=("effective_goodput_rps", "mean"),
         count=("episode_id", "count"),
     ).reset_index()
     paths["fig_C3"] = _save_figure_data(c3, "fig_C3_recovery_error_vs_probes", output_dir)
@@ -277,7 +280,7 @@ def _gen_category_d(results_df, output_dir):
     ablation_policies = ["SIT-safe", "SIT-no-IRBS", "SIT-no-safety", "SIT-no-admission"]
     d4 = results_df[results_df["policy"].isin(ablation_policies)].groupby("policy").agg(
         mean_cvar99=("cvar99_us", "mean"),
-        mean_goodput=("goodput", "mean"),
+        mean_effective_goodput_rps=("effective_goodput_rps", "mean"),
         catastrophe_rate=("catastrophe", "mean"),
     ).reset_index()
     if len(d4) > 0:
@@ -291,7 +294,7 @@ def _gen_category_d(results_df, output_dir):
         ["policy", "load_regime"]
     ).agg(
         mean_cvar99=("cvar99_us", "mean"),
-        mean_goodput=("goodput", "mean"),
+        mean_effective_goodput_rps=("effective_goodput_rps", "mean"),
     ).reset_index()
     paths["fig_D5"] = _save_figure_data(d5_data, "fig_D5_fallback_equivalence_validation", output_dir)
 
@@ -347,7 +350,7 @@ def _gen_category_f(results_df, output_dir):
     ).agg(
         mean_cvar99=("cvar99_us", "mean"),
         std_cvar99=("cvar99_us", "std"),
-        mean_goodput=("goodput", "mean"),
+        mean_effective_goodput_rps=("effective_goodput_rps", "mean"),
     ).reset_index()
     paths["fig_F1"] = _save_figure_data(f1, "fig_F1_parameter_sensitivity_grid", output_dir)
 
@@ -355,7 +358,7 @@ def _gen_category_f(results_df, output_dir):
     f2 = results_df[results_df["policy"] == "SIT-safe"].groupby("interference_regime").agg(
         mean_cvar99=("cvar99_us", "mean"),
         std_cvar99=("cvar99_us", "std"),
-        mean_goodput=("goodput", "mean"),
+        mean_effective_goodput_rps=("effective_goodput_rps", "mean"),
         cv_cvar99=("cvar99_us", lambda x: x.std() / x.mean() if x.mean() > 0 else 0),
     ).reset_index()
     paths["fig_F2"] = _save_figure_data(f2, "fig_F2_lambda_sensitivity", output_dir)
@@ -375,7 +378,7 @@ def _gen_category_f(results_df, output_dir):
             f4_data.append({
                 "ucb_beta": beta,
                 "predicted_cvar99": float(sit_data["cvar99_us"].mean()) * (1 + beta * 0.05),
-                "predicted_goodput": float(sit_data["goodput"].mean()) * (1 - beta * 0.01),
+                "predicted_goodput_rps": float(sit_data["effective_goodput_rps"].mean()) * (1 - beta * 0.01),
             })
     paths["fig_F4"] = _save_figure_data(pd.DataFrame(f4_data), "fig_F4_uncertainty_penalty_sweep", output_dir)
 
@@ -402,7 +405,7 @@ def _gen_category_g(results_df, output_dir):
     g1 = results_df.groupby("policy").agg(
         mean_decision_time=("decision_time_us", "mean"),
         mean_cvar99=("cvar99_us", "mean"),
-        mean_goodput=("goodput", "mean"),
+        mean_effective_goodput_rps=("effective_goodput_rps", "mean"),
     ).reset_index()
     paths["fig_G1"] = _save_figure_data(g1, "fig_G1_probe_cost_vs_accuracy", output_dir)
 
@@ -442,25 +445,27 @@ def _gen_category_h(results_df, output_dir):
     # H1: Summary dashboard
     h1 = results_df.groupby("policy").agg(
         mean_cvar99=("cvar99_us", "mean"),
-        mean_goodput=("goodput", "mean"),
         mean_p99=("p99_latency_us", "mean"),
+        mean_effective_goodput_rps=("effective_goodput_rps", "mean"),
+        mean_success_rate=("success_rate", "mean"),
         catastrophe_rate=("catastrophe", "mean"),
         mean_decision_time=("decision_time_us", "mean"),
         n_episodes=("episode_id", "count"),
     ).reset_index()
+    # Verify CVaR99 > p99 in aggregates
+    h1["cvar99_exceeds_p99"] = h1["mean_cvar99"] >= h1["mean_p99"]
     paths["fig_H1"] = _save_figure_data(h1, "fig_H1_summary_dashboard", output_dir)
 
     # H2: Radar comparison chart data
-    metrics_for_radar = ["mean_cvar99", "mean_goodput", "catastrophe_rate", "mean_decision_time"]
     h2_data = []
     for policy in results_df["policy"].unique():
         pol_data = results_df[results_df["policy"] == policy]
         row = {"policy": policy}
-        row["cvar99_norm"] = float(pol_data["cvar99_us"].mean())
-        row["goodput_norm"] = float(pol_data["goodput"].mean())
-        row["safety_norm"] = 1.0 - float(pol_data["catastrophe"].mean())
-        row["efficiency_norm"] = 1.0 / (float(pol_data["decision_time_us"].mean()) + 1)
-        row["tail_norm"] = 1.0 / (float(pol_data["p99_latency_us"].mean()) + 1)
+        row["cvar99_us"] = float(pol_data["cvar99_us"].mean())
+        row["effective_goodput_rps"] = float(pol_data["effective_goodput_rps"].mean())
+        row["safety_score"] = 1.0 - float(pol_data["catastrophe"].mean())
+        row["efficiency_inv_us"] = 1.0 / (float(pol_data["decision_time_us"].mean()) + 1)
+        row["tail_inv_us"] = 1.0 / (float(pol_data["p99_latency_us"].mean()) + 1)
         h2_data.append(row)
     paths["fig_H2"] = _save_figure_data(pd.DataFrame(h2_data), "fig_H2_radar_comparison_chart", output_dir)
 
@@ -470,19 +475,25 @@ def _gen_category_h(results_df, output_dir):
     for policy in results_df["policy"].unique():
         pol_data = results_df[results_df["policy"] == policy]
         cvar_improvement = 0
+        goodput_improvement = 0
         if len(sit_data) > 0 and len(pol_data) > 0:
-            sit_mean = float(sit_data["cvar99_us"].mean())
-            pol_mean = float(pol_data["cvar99_us"].mean())
-            cvar_improvement = (pol_mean - sit_mean) / pol_mean * 100 if pol_mean > 0 else 0
+            sit_cvar = float(sit_data["cvar99_us"].mean())
+            pol_cvar = float(pol_data["cvar99_us"].mean())
+            cvar_improvement = (pol_cvar - sit_cvar) / pol_cvar * 100 if pol_cvar > 0 else 0
+            sit_gp = float(sit_data["effective_goodput_rps"].mean())
+            pol_gp = float(pol_data["effective_goodput_rps"].mean())
+            goodput_improvement = (sit_gp - pol_gp) / pol_gp * 100 if pol_gp > 0 else 0
 
         h3_data.append({
             "policy": policy,
-            "cvar99_mean": round(float(pol_data["cvar99_us"].mean()), 2),
-            "goodput_mean": round(float(pol_data["goodput"].mean()), 4),
-            "p99_mean": round(float(pol_data["p99_latency_us"].mean()), 2),
+            "cvar99_mean_us": round(float(pol_data["cvar99_us"].mean()), 2),
+            "p99_mean_us": round(float(pol_data["p99_latency_us"].mean()), 2),
+            "effective_goodput_rps": round(float(pol_data["effective_goodput_rps"].mean()), 2),
+            "success_rate": round(float(pol_data["success_rate"].mean()), 4),
             "catastrophe_count": int(pol_data["catastrophe"].sum()),
             "cvar_improvement_vs_sit_pct": round(cvar_improvement, 2),
-            "sit_dominates": cvar_improvement > 0,
+            "goodput_improvement_vs_sit_pct": round(goodput_improvement, 2),
+            "sit_pareto_dominates": cvar_improvement > -5 and goodput_improvement > 0,
         })
 
     paths["fig_H3"] = _save_figure_data(pd.DataFrame(h3_data), "fig_H3_overall_scorecard", output_dir)

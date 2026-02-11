@@ -13,7 +13,7 @@ SIT system is traceable to raw data through this manifest.
 **Config section:** `measurement.irbs`
 
 **Input datasets:**
-- `data/derived/b3527710-ca31-402d-9286-2cdc1a36038d/irbs_estimates.parquet` (sha256: `d9b58fa77e46f202...`)
+- `data/derived/4d177009-47fc-4614-8bef-1808c5dda8ae/irbs_estimates.parquet` (sha256: `d9b58fa77e46f202...`)
 
 **Interpretation:** Shows that IRBS C-T-C measurement reduces estimation bias by 3x+ vs naive time-separated A/B, validating the drift-canceling measurement layer.
 

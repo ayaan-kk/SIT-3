@@ -147,7 +147,7 @@ class TestExecutionMatrix(unittest.TestCase):
         self.assertEqual(len(result_df), 5)
         self.assertIn("policy", result_df.columns)
         self.assertIn("cvar99_us", result_df.columns)
-        self.assertIn("goodput", result_df.columns)
+        self.assertIn("effective_goodput_rps", result_df.columns)
         self.assertTrue((result_df["policy"] == "random").all())
 
 
@@ -173,8 +173,10 @@ class TestMetrics(unittest.TestCase):
                     "cvar99_us": rng.uniform(400, 1000),
                     "cvar999_us": rng.uniform(600, 1500),
                     "violation_rate": rng.uniform(0, 0.05),
-                    "goodput": rng.uniform(0.90, 1.0),
-                    "throughput_inv_us": rng.uniform(0.003, 0.01),
+                    "success_rate": rng.uniform(0.90, 1.0),
+                    "goodput_rps": rng.uniform(1000, 5000),
+                    "effective_goodput_rps": rng.uniform(3000, 15000),
+                    "throughput_rps": rng.uniform(1000, 5000),
                     "queue_variance": rng.uniform(0, 100),
                     "mean_backlog_us": rng.uniform(0, 50),
                     "max_backlog_us": rng.uniform(50, 200),
@@ -237,8 +239,10 @@ class TestFigures(unittest.TestCase):
                     "cvar99_us": rng.uniform(400, 1000),
                     "cvar999_us": rng.uniform(600, 1500),
                     "violation_rate": rng.uniform(0, 0.05),
-                    "goodput": rng.uniform(0.90, 1.0),
-                    "throughput_inv_us": rng.uniform(0.003, 0.01),
+                    "success_rate": rng.uniform(0.90, 1.0),
+                    "goodput_rps": rng.uniform(1000, 5000),
+                    "effective_goodput_rps": rng.uniform(3000, 15000),
+                    "throughput_rps": rng.uniform(1000, 5000),
                     "queue_variance": rng.uniform(0, 100),
                     "mean_backlog_us": rng.uniform(0, 50),
                     "max_backlog_us": rng.uniform(50, 200),
@@ -281,7 +285,10 @@ class TestPaper(unittest.TestCase):
                 rows.append({
                     "policy": policy, "episode_id": i,
                     "cvar99_us": rng.uniform(300, 800),
-                    "goodput": rng.uniform(0.90, 1.0),
+                    "success_rate": rng.uniform(0.90, 1.0),
+                    "goodput_rps": rng.uniform(1000, 5000),
+                    "effective_goodput_rps": rng.uniform(3000, 15000),
+                    "throughput_rps": rng.uniform(1000, 5000),
                     "p99_latency_us": rng.uniform(200, 600),
                     "violation_rate": rng.uniform(0, 0.05),
                     "catastrophe": False,
@@ -310,17 +317,29 @@ class TestAcceptanceCriteria(unittest.TestCase):
 
         rng = np.random.RandomState(42)
         rows = []
-        for policy in ["SIT-safe", "partition", "random", "k8s-hpa", "k8s-default", "slurm-fcfs", "triton-proxy"]:
+        for policy in ["SIT-safe", "partition", "random", "oracle", "k8s-hpa", "k8s-default", "slurm-fcfs", "triton-proxy"]:
             for i in range(20):
-                cvar = rng.uniform(300, 600) if policy == "SIT-safe" else rng.uniform(400, 900)
+                is_sit = policy == "SIT-safe"
+                is_oracle = policy == "oracle"
+                is_partition = policy == "partition"
+                cvar = rng.uniform(300, 600) if (is_sit or is_oracle) else rng.uniform(400, 900)
+                n_specs = 3 if not is_partition else 0
+                # Effective goodput: SIT/oracle co-locate (high), partition is isolated (low)
+                egp = rng.uniform(8000, 15000) if (is_sit or is_oracle) else (
+                    rng.uniform(2000, 4000) if is_partition else rng.uniform(5000, 10000)
+                )
                 rows.append({
                     "policy": policy, "episode_id": i,
                     "cvar99_us": cvar,
-                    "goodput": rng.uniform(0.90, 1.0) if policy == "SIT-safe" else rng.uniform(0.80, 0.95),
-                    "violation_rate": rng.uniform(0, 0.03) if policy == "SIT-safe" else rng.uniform(0.02, 0.08),
+                    "p99_latency_us": cvar * 0.9,
+                    "success_rate": rng.uniform(0.90, 1.0) if is_sit else rng.uniform(0.80, 0.95),
+                    "goodput_rps": rng.uniform(2000, 5000),
+                    "effective_goodput_rps": egp,
+                    "throughput_rps": rng.uniform(2000, 5000),
+                    "violation_rate": rng.uniform(0, 0.03) if is_sit else rng.uniform(0.02, 0.08),
                     "catastrophe": False,
                     "decision_time_us": rng.uniform(10, 200),
-                    "n_spectators": 3,
+                    "n_spectators": n_specs,
                     "interference_regime": "iid_noise",
                     "load_regime": "medium",
                 })

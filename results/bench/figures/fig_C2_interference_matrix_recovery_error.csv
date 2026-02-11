@@ -1,7 +1,7 @@
 interference_regime,sit_cvar99,oracle_cvar99,recovery_gap_pct
-iid_noise,7403.93,7403.86,0.0
-structured,7257.9,7715.14,5.93
-heavy_tail_burst,109951.83,102545.88,7.22
-adversarial,16100.02,16051.43,0.3
-drifting,45620.77,45621.45,0.0
-partial_obs,21657.24,21798.41,0.65
+iid_noise,7465.37,7469.02,0.05
+structured,7317.36,7779.78,5.94
+heavy_tail_burst,145133.57,160872.68,9.78
+adversarial,18960.11,20592.03,7.93
+drifting,45711.84,45707.96,0.01
+partial_obs,23498.79,23483.37,0.07
