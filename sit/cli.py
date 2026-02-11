@@ -402,6 +402,47 @@ def run(config_path: str):
                         )
                 sys.exit(1)
 
+    # Load sweep pipeline (if configured)
+    has_load = "load" in config
+    load_sweep_df = None
+    load_pareto_df = None
+    load_admission_df = None
+    load_diagnostics_df = None
+    load_summary_df = None
+
+    if has_sim and has_load:
+        from sit.load.sweep import run_load_sweep
+
+        load_rng = np.random.RandomState(config["seed"] + 30)
+        (load_sweep_df, load_pareto_df, load_admission_df,
+         load_diagnostics_df, load_summary_df) = \
+            run_load_sweep(world, config, ctx, load_rng)
+
+        # Write load sweep outputs
+        derived_base = ctx.derived_path
+        os.makedirs(derived_base, exist_ok=True)
+
+        load_outputs = {
+            "load_sweep_results": load_sweep_df,
+            "goodput_pareto_points": load_pareto_df,
+            "slo_admission_curve": load_admission_df,
+            "queue_diagnostics": load_diagnostics_df,
+        }
+
+        for name, df in load_outputs.items():
+            if df is not None and len(df) > 0:
+                out_path = os.path.join(derived_base, f"{name}.{fmt}")
+                write_dataframe(df, out_path, fmt)
+                register_artifact(ctx, out_path, "derived")
+                derived_count += 1
+
+        # Write summary CSV
+        if load_summary_df is not None and len(load_summary_df) > 0:
+            tables_base = os.path.join("results", "tables")
+            os.makedirs(tables_base, exist_ok=True)
+            load_csv_path = os.path.join(tables_base, "load_sweep_summary.csv")
+            load_summary_df.to_csv(load_csv_path, index=False)
+
     # Run scheduling gates if applicable
     if has_scheduling and sched_trials_df is not None and len(sched_trials_df) > 0:
         from sit.eval.gates import (
@@ -454,6 +495,70 @@ def run(config_path: str):
             if not (s1_pass and s2_pass):
                 click.echo("")
                 click.echo("SCHEDULING GATES FAILED - see details above")
+                sys.exit(1)
+
+    # Run load gates if applicable
+    if has_load and load_sweep_df is not None and len(load_sweep_df) > 0:
+        from sit.eval.gates import (
+            gate_load_pareto_dominance,
+            gate_load_slo_throughput,
+            gate_load_model_sanity,
+        )
+        load_gates_cfg = config.get("load", {}).get("gates", config.get("gates", {}))
+        slo_us_val = float(config.get("slo_us", 500000.0))
+
+        click.echo("")
+        click.echo("Load gates:")
+
+        l1_pass = False
+        try:
+            l1_pass = gate_load_pareto_dominance(
+                load_pareto_df,
+                load_sweep_df,
+                risk_band=float(load_gates_cfg.get("pareto_risk_band", 0.10)),
+                top_load_fraction=float(load_gates_cfg.get("top_load_fraction", 0.30)),
+            )
+            click.echo(f"  L1 (Pareto dominance):  {'PASS' if l1_pass else 'FAIL'}")
+        except Exception as e:
+            click.echo(f"  L1 (Pareto dominance):  ERROR ({e})")
+
+        l2_pass = False
+        try:
+            l2_pass = gate_load_slo_throughput(
+                load_admission_df,
+                advantage_ratio=float(load_gates_cfg.get("admission_advantage", 1.15)),
+            )
+            click.echo(f"  L2 (SLO throughput):    {'PASS' if l2_pass else 'FAIL'}")
+        except Exception as e:
+            click.echo(f"  L2 (SLO throughput):    ERROR ({e})")
+
+        l3_pass = False
+        try:
+            l3_pass = gate_load_model_sanity(
+                load_diagnostics_df,
+                slo_us=slo_us_val,
+            )
+            click.echo(f"  L3 (model sanity):      {'PASS' if l3_pass else 'FAIL'}")
+        except Exception as e:
+            click.echo(f"  L3 (model sanity):      ERROR ({e})")
+
+        # Print load sweep summary
+        if load_summary_df is not None and len(load_summary_df) > 0:
+            click.echo("")
+            click.echo("Load sweep summary:")
+            for _, row in load_summary_df.iterrows():
+                click.echo(
+                    f"  {row['scheduler_name']:25s}: "
+                    f"goodput={row['mean_goodput_rps']:8.1f} rps "
+                    f"cvar99={row['mean_cvar99_us']:10.1f}us "
+                    f"max_load={row['max_feasible_load_rps']:.0f} rps "
+                    f"frontier={'Y' if row['on_pareto_frontier'] else 'N'}"
+                )
+
+        if load_gates_cfg.get("enable", False):
+            if not (l1_pass and l2_pass and l3_pass):
+                click.echo("")
+                click.echo("LOAD GATES FAILED - see details above")
                 sys.exit(1)
 
     click.echo("=" * 60)

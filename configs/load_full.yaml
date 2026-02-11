@@ -1,0 +1,136 @@
+# SIT load sweep full configuration
+# Comprehensive evaluation with more load points and episodes.
+
+seed: 42
+strict_mode: true
+latency_unit: "us"
+slo_us: 500000
+n_trials: 20
+output_dir: "data"
+export_format: "parquet"
+
+schedulers:
+  - "sched_harness"
+
+regimes:
+  mode: "synthetic"
+  n_regimes: 4
+
+logging:
+  level: "INFO"
+
+sim:
+  n_targets: 10
+  n_spectators: 80
+  n_regimes: 4
+  n_samples_per_micro_run: 2000
+
+  drift:
+    type: "linear"
+    a_us_per_step: 50.0
+
+  channels:
+    weights:
+      LLC: 1.0
+      MEM_BW: 1.2
+      IO: 0.7
+      TLB: 0.5
+      SMT: 0.6
+    scale_us: 500.0
+
+  toxic_pairs:
+    enabled: true
+    sparsity: 0.12
+    lognormal_mu: 0.5
+    lognormal_sigma: 1.0
+
+  queue:
+    enabled: true
+    concurrency: 24
+    think_time_us: 50.0
+
+  burst:
+    enabled: true
+    p_burst: 0.003
+    pareto_alpha: 2.2
+    scale_us: 8000.0
+
+  interactions:
+    enabled: false
+    gamma: 0.01
+
+measurement:
+  stat: "cvar99"
+  alpha: 0.99
+  use_irbs: true
+  ci_resamples: 500
+  block_bootstrap: true
+  block_size: 64
+  n_irbs_pairs: 3
+  irbs:
+    drift_order: 1
+    design: "CTC"
+
+scheduling:
+  n_hosts: 8
+  host_capacity: 16
+  episodes: 20
+
+  episode_generator:
+    mode: "adversarial"
+    toxic_inclusion_rate: 0.6
+    hard_regime_rate: 0.5
+
+  schedulers:
+    - "random"
+    - "round_robin"
+    - "static_partition"
+    - "mean_greedy"
+    - "similarity_avoidance"
+    - "sit_risk_div"
+    - "sit_safe_ucb"
+
+  kernel:
+    type: "rbf"
+    sigma: 0.3
+
+  sit_params:
+    beta_ucb: 2.0
+    lambda_div: 0.5
+    tau_risk_us: 10000000
+
+  catastrophe_thresholds:
+    catastrophe_p99_us: 100000000
+    catastrophe_cvar_us: 500000000
+    catastrophe_violation_rate: 0.9
+
+  gates:
+    enable: true
+    require_no_catastrophes: true
+    tail_reduction_ratio: 0.70
+    allow_pareto_alternative: true
+    replay_required: true
+
+load:
+  mode: "open_loop"
+  grid: [50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 550, 600, 650, 700]
+  window_us: 10000000
+  warmup_fraction: 0.2
+  v_target: 0.02
+  n_episodes: 10
+  n_service_samples: 3000
+
+  schedulers:
+    - "random"
+    - "static_partition"
+    - "mean_greedy"
+    - "sit_safe_ucb"
+
+  gates:
+    enable: true
+    pareto_risk_band: 0.10
+    admission_advantage: 1.15
+    top_load_fraction: 0.30
+
+gates:
+  enable: true

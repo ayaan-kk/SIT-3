@@ -528,3 +528,131 @@ def gate_irbs_bias_reduction(
     )
 
     return passed
+
+
+# ---- Load / Serving Gates (L1, L2, L3) ----
+
+
+def gate_load_pareto_dominance(
+    pareto_df: pd.DataFrame,
+    sweep_df: pd.DataFrame,
+    sit_scheduler: str = "sit_safe_ucb",
+    partition_scheduler: str = "static_partition",
+    risk_band: float = 0.10,
+    top_load_fraction: float = 0.30,
+) -> bool:
+    """Gate L1: SIT-safe on Pareto frontier and dominates partition.
+
+    Requirements:
+    1. SIT-safe is on the Pareto frontier in the top load region
+    2. SIT-safe dominates static_partition in at least one high-load point
+       (higher goodput at comparable tail risk)
+
+    Args:
+        pareto_df: Pareto frontier data.
+        sweep_df: Full sweep results.
+        sit_scheduler: SIT scheduler name.
+        partition_scheduler: Partition scheduler name.
+        risk_band: Comparable risk band fraction.
+        top_load_fraction: Fraction of load grid considered "high load".
+
+    Returns:
+        True if the gate passes.
+    """
+    from sit.eval.pareto import check_pareto_dominance_over_partition
+
+    passed, details = check_pareto_dominance_over_partition(
+        pareto_df, sweep_df, sit_scheduler, partition_scheduler,
+        risk_band, top_load_fraction,
+    )
+
+    logger.info(
+        "L1 (Pareto dominance) gate: on_frontier=%s, dominates_partition=%s, "
+        "n_domination_points=%d -> %s",
+        details.get("on_frontier_high_load"),
+        details.get("dominates_partition"),
+        details.get("n_domination_points", 0),
+        "PASS" if passed else "FAIL",
+    )
+
+    if not passed:
+        logger.warning("L1 FAILURE DETAILS: %s", details)
+
+    return passed
+
+
+def gate_load_slo_throughput(
+    admission_df: pd.DataFrame,
+    sit_scheduler: str = "sit_safe_ucb",
+    partition_scheduler: str = "static_partition",
+    advantage_ratio: float = 1.15,
+) -> bool:
+    """Gate L2: SIT-safe admits >= 15% more load than partition.
+
+    At a fixed SLO, SIT-safe's maximum feasible load (where violation_rate
+    <= v_target) must be at least advantage_ratio * partition's.
+
+    Args:
+        admission_df: Admission curve data.
+        sit_scheduler: SIT scheduler name.
+        partition_scheduler: Partition scheduler name.
+        advantage_ratio: Required admission advantage ratio.
+
+    Returns:
+        True if the gate passes.
+    """
+    from sit.eval.pareto import check_admission_advantage
+
+    passed, details = check_admission_advantage(
+        admission_df, sit_scheduler, partition_scheduler, advantage_ratio,
+    )
+
+    logger.info(
+        "L2 (SLO throughput) gate: sit_max=%.0f, part_max=%.0f, "
+        "load_ratio=%.2f, advantage_target=%.2f -> %s",
+        details.get("sit_max_load", 0),
+        details.get("part_max_load", 0),
+        details.get("load_ratio", 0),
+        advantage_ratio,
+        "PASS" if passed else "FAIL",
+    )
+
+    if not passed:
+        logger.warning("L2 FAILURE DETAILS: %s", details)
+
+    return passed
+
+
+def gate_load_model_sanity(
+    diagnostics_df: pd.DataFrame,
+    slo_us: float = 500_000.0,
+) -> bool:
+    """Gate L3: Queue model sanity checks pass.
+
+    Validates:
+    - No p99 >> SLO with near-zero violation rate
+    - goodput <= throughput always
+    - Throughput computed from timeline
+    - Units are consistent
+
+    Args:
+        diagnostics_df: Queue diagnostics DataFrame.
+        slo_us: SLO threshold.
+
+    Returns:
+        True if the gate passes.
+    """
+    from sit.eval.pareto import check_model_sanity
+
+    passed, details = check_model_sanity(diagnostics_df, slo_us)
+
+    logger.info(
+        "L3 (model sanity) gate: n_failures=%d -> %s",
+        details.get("n_failures", 0),
+        "PASS" if passed else "FAIL",
+    )
+
+    if not passed:
+        logger.warning("L3 FAILURE DETAILS: %s", details)
+
+    return passed
