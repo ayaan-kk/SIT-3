@@ -661,6 +661,51 @@ def bench(config_path: str, output_dir: str):
     click.echo("=" * 60)
 
 
+@cli.command()
+@click.option(
+    "--config",
+    "config_path",
+    required=True,
+    type=click.Path(exists=True),
+    help="Path to bench YAML configuration file.",
+)
+@click.option(
+    "--output-dir",
+    default="results/bench",
+    help="Output directory for scoreboard results.",
+)
+def scoreboard(config_path: str, output_dir: str):
+    """Run the comprehensive scoreboard evaluation.
+
+    Evaluates all SIT layers: probe, tomography, scheduling safety,
+    load/queueing, statistical rigor, and failure modes.
+    Produces the 6 headline figures and a final scoreboard.
+
+    Usage: sit scoreboard --config configs/bench.yaml
+    """
+    reset_logging()
+
+    from sit.bench.scoreboard import run_full_scoreboard
+
+    config = load_config(config_path)
+
+    click.echo("Running comprehensive scoreboard evaluation...")
+    click.echo("This evaluates all SIT layers end-to-end.")
+    click.echo("")
+
+    result = run_full_scoreboard(config, output_dir=output_dir)
+
+    click.echo("")
+    click.echo("=" * 60)
+    click.echo("SIT Comprehensive Scoreboard Complete")
+    click.echo("=" * 60)
+    click.echo(f"  Total episodes:  {result.get('n_total_episodes', 0)}")
+    click.echo(f"  Elapsed:         {result.get('elapsed_s', 0)}s")
+    click.echo(f"  Paper:           {result.get('paper_path', 'N/A')}")
+    click.echo(f"  Scoreboard:      {output_dir}/scoreboard.md")
+    click.echo("=" * 60)
+
+
 def main():
     """Entry point for the SIT CLI."""
     cli()

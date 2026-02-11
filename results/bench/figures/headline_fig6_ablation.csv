@@ -1,0 +1,4 @@
+ablation,delta_cvar99_us,delta_goodput_rps,cvar_pct_change,goodput_pct_change
+no-IRBS,-1287.22,-1871.23,-2.7,-22.7
+no-safety,1098.77,53.29,2.3,0.6
+no-admission,-4209.99,140.7,-8.9,1.7

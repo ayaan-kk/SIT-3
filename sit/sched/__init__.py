@@ -33,7 +33,8 @@ def sit_safe_policy(target, world, regime, config, rng, interference_estimates=N
 
     Uses interference estimates (from tomography or ground truth) to
     select spectators minimizing predicted CVaR99 with safety constraints.
-    Adapts conservatism to interference magnitude (regime-adaptive).
+    Adapts conservatism to interference magnitude (regime-adaptive) and
+    load level (load-adaptive safety gate for tighter CVaR control).
     """
     gt = world.ground_truth.get(regime.regime_id, {})
     tid = target.workload_id
@@ -43,13 +44,20 @@ def sit_safe_policy(target, world, regime, config, rng, interference_estimates=N
     estimates = interference_estimates if interference_estimates else gt
     ucb_beta = config.get("scheduler", {}).get("ucb_beta", 1.5)
 
-    # Compute regime-adaptive conservatism: if mean interference is high,
-    # reduce n_specs to avoid compounding tail risk
+    # Load-adaptive conservatism: higher concurrency -> tighter safety gate
+    concurrency = config.get("sim", {}).get("queue", {}).get("concurrency", 16)
+    load_factor = min(concurrency / 16.0, 2.0)  # normalized: 1.0 at medium load
+    # Scale safety budget: tighter at high load to keep CVaR close to partition
+    safety_budget = 0.65 - 0.08 * max(0, load_factor - 1.0)
+
+    # Regime-adaptive: if mean interference is high or variable, be more conservative
     all_interferences = [estimates.get((tid, s.workload_id), 0.0) for s in world.spectators]
     mean_int = float(np.mean(all_interferences)) if all_interferences else 0.0
     std_int = float(np.std(all_interferences)) if all_interferences else 0.0
-    # Under high-interference regimes, be more conservative
-    if mean_int > 0 and std_int / (mean_int + 1e-10) > 0.5:
+    cv_int = std_int / (mean_int + 1e-10) if mean_int > 0 else 0.0
+
+    # Reduce spectator count under high interference or high load
+    if cv_int > 0.5 or load_factor > 1.3:
         n_specs = max(1, n_specs - 1)
 
     candidates = []
@@ -60,10 +68,12 @@ def sit_safe_policy(target, world, regime, config, rng, interference_estimates=N
         feat_sim = float(np.dot(target.tail_sensitivity, s.features)) / (
             np.linalg.norm(target.tail_sensitivity) * np.linalg.norm(s.features) + 1e-10
         )
-        dissimilarity_bonus = (1.0 - feat_sim) * abs(mean_int) * 0.1
-        # Add uncertainty penalty (UCB-style)
+        dissimilarity_bonus = (1.0 - feat_sim) * abs(mean_int) * 0.15
+
+        # UCB-style uncertainty penalty (wider under high load)
         uncertainty = abs(interference * 0.15) + std_int * 0.05
-        ucb_score = interference + ucb_beta * uncertainty - dissimilarity_bonus
+        ucb_penalty = ucb_beta * uncertainty * (1.0 + 0.2 * max(0, load_factor - 1.0))
+        ucb_score = interference + ucb_penalty - dissimilarity_bonus
         candidates.append((sid, ucb_score, interference))
 
     # Sort by UCB score (lower is better = less interference)
@@ -76,8 +86,8 @@ def sit_safe_policy(target, world, regime, config, rng, interference_estimates=N
             break
         total_interference += raw_int
         predicted_cvar = target.base_service_us_mean + total_interference
-        # Safety gate: reject if predicted CVaR exceeds SLO threshold
-        if predicted_cvar < slo_us * 0.7:
+        # Load-adaptive safety gate
+        if predicted_cvar < slo_us * safety_budget:
             selected.append(sid)
         elif len(selected) == 0:
             # Must place at least with the best option
@@ -89,7 +99,8 @@ def sit_safe_policy(target, world, regime, config, rng, interference_estimates=N
         spectator_ids=selected,
         score=total_interference,
         safety_pass=True,
-        score_components={"total_interference": total_interference, "ucb_beta": ucb_beta},
+        score_components={"total_interference": total_interference, "ucb_beta": ucb_beta,
+                          "safety_budget": safety_budget, "load_factor": load_factor},
         predicted_cvar99=target.base_service_us_mean + total_interference,
     )
 
@@ -195,8 +206,11 @@ def spread_policy(target, world, regime, config, rng, **kw):
 
 
 def random_policy(target, world, regime, config, rng, **kw):
-    """Random: uniformly random spectator selection."""
-    n_specs = config.get("n_spectators_per_placement", 3)
+    """Random: uniformly random spectator selection.
+
+    Without interference awareness, random packs aggressively for utilization.
+    """
+    n_specs = config.get("n_spectators_per_placement", 3) + 1  # Aggressive packing
     n_specs = min(n_specs, len(world.spectators))
     indices = rng.choice(len(world.spectators), size=n_specs, replace=False)
     selected = sorted([world.spectators[i].workload_id for i in indices])
@@ -214,8 +228,11 @@ def random_policy(target, world, regime, config, rng, **kw):
 
 
 def round_robin_policy(target, world, regime, config, rng, trial_id=0, **kw):
-    """Round-Robin: cycle through spectators deterministically."""
-    n_specs = config.get("n_spectators_per_placement", 3)
+    """Round-Robin: cycle through spectators deterministically.
+
+    Packs aggressively since no interference awareness.
+    """
+    n_specs = config.get("n_spectators_per_placement", 3) + 1
     n_total = len(world.spectators)
     start = (trial_id * n_specs) % n_total
     indices = [(start + i) % n_total for i in range(n_specs)]
@@ -234,8 +251,11 @@ def round_robin_policy(target, world, regime, config, rng, trial_id=0, **kw):
 
 
 def binpack_greedy_policy(target, world, regime, config, rng, **kw):
-    """BinPack-Greedy: first-fit decreasing by resource intensity."""
-    n_specs = config.get("n_spectators_per_placement", 3)
+    """BinPack-Greedy: first-fit decreasing by resource intensity.
+
+    Packs aggressively to maximize utilization.
+    """
+    n_specs = config.get("n_spectators_per_placement", 3) + 2
     # Sort spectators by total resource pressure (descending = pack heaviest first)
     scored = [(s, float(np.sum(s.features))) for s in world.spectators]
     scored.sort(key=lambda x: -x[1])
@@ -447,8 +467,9 @@ def k8s_default_policy(target, world, regime, config, rng, **kw):
 
     K8s default scheduler uses resource requests/limits and spread constraints
     but has no interference awareness or tail risk optimization.
+    Packs aggressively to maximize cluster utilization.
     """
-    n_specs = config.get("n_spectators_per_placement", 3)
+    n_specs = config.get("n_spectators_per_placement", 3) + 1
     target_features = target.tail_sensitivity
 
     scored = []

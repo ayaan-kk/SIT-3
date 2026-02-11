@@ -1,0 +1,17 @@
+policy,load_regime,mean_violation_rate,slo_feasible,mean_effective_goodput_rps
+SIT-safe,low,5.3e-05,True,8533.98
+SIT-safe,medium,4e-05,True,8376.91
+SIT-safe,high,9e-05,True,8021.02
+SIT-safe,saturation,0.000187,True,8023.68
+partition,low,4.4e-05,True,6424.01
+partition,medium,8.7e-05,True,5852.72
+partition,high,7e-05,True,5781.53
+partition,saturation,0.000145,True,5747.72
+random,low,2.3e-05,True,5300.74
+random,medium,1.3e-05,True,5305.21
+random,high,0.000127,True,5290.77
+random,saturation,9.9e-05,True,5351.06
+k8s-default,low,5e-05,True,7663.22
+k8s-default,medium,0.000103,True,7525.73
+k8s-default,high,0.00011,True,7535.43
+k8s-default,saturation,0.000133,True,7542.42
