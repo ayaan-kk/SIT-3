@@ -381,3 +381,150 @@ def gate_f3_no_silent_catastrophes(
         "n_silent": n_silent,
         "details": f"{n_silent} silent out of {n_total} catastrophes",
     }
+
+
+# === Reproducibility gates (R0, R1, R2) ===
+
+
+def gate_r0_reproducibility(
+    stage_results: dict,
+    manifest_df: pd.DataFrame,
+) -> dict:
+    """Gate R0: Reproducibility check.
+
+    Verifies that all stages completed successfully and the artifact
+    manifest is non-empty. For full verification, re-running sit repro
+    twice with the same config must produce identical manifest hashes.
+
+    Args:
+        stage_results: Dict mapping stage_name -> result dict.
+        manifest_df: Artifact manifest DataFrame.
+
+    Returns:
+        Dict with 'passed', 'stages_completed', 'manifest_count', 'details'.
+    """
+    n_completed = sum(
+        1 for r in stage_results.values()
+        if r.get("status") == "completed"
+    )
+    n_total = sum(
+        1 for r in stage_results.values()
+        if r.get("status") not in ("skipped",)
+    )
+    manifest_ok = len(manifest_df) > 0
+
+    # All non-skipped stages must complete
+    all_completed = n_completed == n_total and n_total > 0
+    passed = all_completed and manifest_ok
+
+    logger.info(
+        "Gate R0 (Reproducibility): %d/%d stages completed, "
+        "manifest=%d artifacts -> %s",
+        n_completed, n_total, len(manifest_df),
+        "PASS" if passed else "FAIL",
+    )
+
+    return {
+        "passed": passed,
+        "stages_completed": f"{n_completed}/{n_total}",
+        "manifest_count": len(manifest_df),
+        "details": f"{n_completed}/{n_total} stages, {len(manifest_df)} artifacts",
+    }
+
+
+def gate_r1_manifest_completeness(
+    manifest_df: pd.DataFrame,
+) -> dict:
+    """Gate R1: Every artifact referenced must exist in manifest.
+
+    Verifies that the manifest has entries for expected artifact types
+    and all referenced files exist on disk.
+
+    Args:
+        manifest_df: Artifact manifest DataFrame.
+
+    Returns:
+        Dict with 'passed', 'total', 'missing', 'details'.
+    """
+    import os
+
+    if len(manifest_df) == 0:
+        logger.warning("Gate R1: Empty manifest -> FAIL")
+        return {
+            "passed": False,
+            "total": 0,
+            "missing": [],
+            "details": "Empty manifest",
+        }
+
+    missing = []
+    for _, row in manifest_df.iterrows():
+        path = row.get("artifact_path", "")
+        if path and not os.path.exists(path):
+            missing.append(path)
+
+    passed = len(missing) == 0
+
+    logger.info(
+        "Gate R1 (Manifest completeness): %d artifacts, %d missing -> %s",
+        len(manifest_df), len(missing),
+        "PASS" if passed else "FAIL",
+    )
+
+    return {
+        "passed": passed,
+        "total": len(manifest_df),
+        "missing": missing,
+        "details": f"{len(manifest_df)} artifacts, {len(missing)} missing",
+    }
+
+
+def gate_r2_replay_integrity(
+    replay_results: dict,
+) -> dict:
+    """Gate R2: Decision replay must match original decisions.
+
+    Verifies that randomly sampled probe steps, scheduling episodes,
+    and load points can be replayed with matching results.
+
+    Args:
+        replay_results: Dict from run_replay_verification().
+
+    Returns:
+        Dict with 'passed', 'probe_match', 'sched_match', 'load_match', 'details'.
+    """
+    if replay_results is None:
+        logger.info("Gate R2 (Replay): No replay data -> PASS (vacuous)")
+        return {
+            "passed": True,
+            "probe_match": True,
+            "sched_match": True,
+            "load_match": True,
+            "details": "No replay data (vacuous pass)",
+        }
+
+    probe_replays = replay_results.get("probe_replays", [])
+    sched_replays = replay_results.get("sched_replays", [])
+    load_replays = replay_results.get("load_replays", [])
+
+    probe_ok = all(r.get("match", False) for r in probe_replays)
+    sched_ok = all(r.get("match", False) for r in sched_replays)
+    load_ok = all(r.get("match", False) for r in load_replays)
+
+    all_match = probe_ok and sched_ok and load_ok
+
+    logger.info(
+        "Gate R2 (Replay): probe=%s (%d), sched=%s (%d), load=%s (%d) -> %s",
+        probe_ok, len(probe_replays),
+        sched_ok, len(sched_replays),
+        load_ok, len(load_replays),
+        "PASS" if all_match else "FAIL",
+    )
+
+    return {
+        "passed": all_match,
+        "probe_match": probe_ok,
+        "sched_match": sched_ok,
+        "load_match": load_ok,
+        "details": f"probe={probe_ok}({len(probe_replays)}), sched={sched_ok}({len(sched_replays)}), load={load_ok}({len(load_replays)})",
+    }

@@ -525,6 +525,81 @@ def info(run_id: str, base_dir: str):
         click.echo("Artifacts: not found")
 
 
+@cli.command()
+@click.option(
+    "--config",
+    "config_path",
+    required=True,
+    type=click.Path(exists=True),
+    help="Path to repro YAML configuration file.",
+)
+def repro(config_path: str):
+    """Run the full reproducibility pipeline.
+
+    Executes all SIT pipeline stages sequentially, builds artifact manifest,
+    runs decision replay, generates docs, and evaluates repro gates.
+
+    Usage: sit repro --config configs/repro.yaml
+    """
+    reset_logging()
+
+    from sit.repro.runner import run_repro_pipeline
+
+    config = load_config(config_path)
+
+    click.echo("Running reproducibility pipeline...")
+    click.echo("This will execute all stages sequentially.")
+    click.echo("")
+
+    repro_results = run_repro_pipeline(config)
+
+    click.echo("")
+    click.echo("=" * 60)
+    click.echo("SIT Reproducibility Pipeline Complete")
+    click.echo("=" * 60)
+    click.echo(f"  Master Run ID: {repro_results['master_run_id']}")
+    click.echo(f"  Manifest:      {repro_results['manifest_count']} artifacts")
+    click.echo(f"  Manifest path: {repro_results['manifest_path']}")
+
+    # Print stage statuses
+    click.echo("")
+    click.echo("Stage results:")
+    for stage_name, stage_info in repro_results.get("stage_results", {}).items():
+        status = stage_info.get("status", "N/A")
+        n_art = stage_info.get("n_artifacts", 0)
+        click.echo(f"  {stage_name}: {status} ({n_art} artifacts)")
+
+    # Print gate results
+    gate_results = repro_results.get("gates", {})
+    if gate_results:
+        click.echo("")
+        click.echo("Reproducibility gates:")
+        for gate_name, gate_result in gate_results.items():
+            if isinstance(gate_result, dict):
+                status = "PASS" if gate_result.get("passed", False) else "FAIL"
+                details = gate_result.get("details", "")
+                click.echo(f"  {gate_name}: {status} ({details})")
+
+    # Print replay summary
+    replay = repro_results.get("replay")
+    if replay:
+        click.echo("")
+        click.echo("Decision replay:")
+        click.echo(f"  Probe replays:  {len(replay.get('probe_replays', []))}")
+        click.echo(f"  Sched replays:  {len(replay.get('sched_replays', []))}")
+        click.echo(f"  Load replays:   {len(replay.get('load_replays', []))}")
+        click.echo(f"  All match:      {replay.get('all_match', 'N/A')}")
+
+    click.echo("")
+    click.echo("Generated docs:")
+    click.echo("  docs/repro.md      - Reproducibility binder")
+    click.echo("  docs/figures.md    - Figure manifest")
+    click.echo("  docs/interview.md  - Interview preparation")
+    click.echo("  results/tables/final_summary.csv")
+    click.echo("  results/reports/summary.md")
+    click.echo("=" * 60)
+
+
 def main():
     """Entry point for the SIT CLI."""
     cli()

@@ -1,0 +1,54 @@
+# SIT reproducibility binder configuration
+# One-command rerun: sit repro --config configs/repro.yaml
+#
+# Executes all pipeline stages sequentially, builds artifact manifest,
+# runs decision replay, generates docs, and evaluates repro gates.
+
+seed: 123
+strict_mode: true
+latency_unit: "us"
+slo_us: 500000
+n_trials: 10
+output_dir: "data"
+export_format: "parquet"
+
+schedulers:
+  - "measurement_harness"
+
+regimes:
+  mode: "synthetic"
+  n_regimes: 2
+
+logging:
+  level: "INFO"
+
+run_mode: "repro"
+
+# Pipeline stages to execute (in fixed order)
+stages:
+  probe:
+    config: configs/sim_smoke.yaml
+  tomography:
+    config: configs/tomo_smoke.yaml
+    reuse_from_probe: true
+  scheduling:
+    config: configs/sim_smoke.yaml
+  load:
+    config: configs/sim_smoke.yaml
+  stats:
+    config: configs/stats_smoke.yaml
+  failure:
+    config: configs/failure_smoke.yaml
+  hardware:
+    enabled: false
+    config: configs/hw_smoke.yaml
+
+# Reproducibility settings
+repro:
+  epsilon_float: 1.0e-8
+  ignore_paths: ["__pycache__", ".pytest_cache"]
+  require_manifest: true
+  require_replay: true
+  n_probe_samples: 5
+  n_sched_samples: 5
+  n_load_samples: 3
