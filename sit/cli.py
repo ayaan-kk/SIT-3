@@ -78,6 +78,77 @@ def run(config_path: str):
     has_sim = "sim" in config
     has_tomo = "tomography" in config
     has_hw = config.get("run_mode") == "hardware"
+    has_failure = config.get("run_mode") == "failure"
+
+    # --- Failure mode (separate path) ---
+    if has_failure:
+        from sit.failure.pipeline import run_failure_pipeline
+
+        click.echo("Running failure modes and ablation pipeline...")
+
+        # Run baseline sim trials first if sim section present
+        baseline_trials = None
+        if has_sim:
+            from sit.sim.pipeline import run_sim_trials, run_sim_decisions
+            from sit.sim.world import build_world
+
+            import numpy as np
+            rng = np.random.RandomState(config["seed"])
+            world = build_world(config, rng)
+            trial_rng = np.random.RandomState(config["seed"] + 1)
+            baseline_trials = run_sim_trials(
+                world, config, ctx.run_id, ctx.config_hash,
+                ctx.git_commit, timestamp, trial_rng,
+            )
+
+            # Also generate decisions for schema compliance
+            decision_rng = np.random.RandomState(config["seed"] + 2)
+            decisions_df = run_sim_decisions(
+                world, config, ctx.run_id, ctx.config_hash,
+                ctx.git_commit, timestamp, decision_rng,
+            )
+
+            from sit.core.schema import validate_trials, validate_decisions
+            baseline_trials = validate_trials(baseline_trials)
+            decisions_df = validate_decisions(decisions_df)
+
+            t_path = trial_path(ctx.run_id, ctx.output_dir, fmt)
+            d_path = decision_path(ctx.run_id, ctx.output_dir, fmt)
+            write_dataframe(baseline_trials, t_path, fmt)
+            write_dataframe(decisions_df, d_path, fmt)
+            register_artifact(ctx, t_path, "raw")
+            register_artifact(ctx, d_path, "raw")
+
+        failure_results = run_failure_pipeline(ctx, config, baseline_trials)
+
+        # Finalize
+        artifacts_df = finalize_run(ctx)
+        a_path = artifact_path(ctx.run_id, ctx.output_dir, fmt)
+        write_dataframe(artifacts_df, a_path, fmt)
+
+        click.echo("")
+        click.echo("=" * 60)
+        click.echo("SIT Failure & Ablation Run Complete")
+        click.echo("=" * 60)
+        click.echo(f"  Run ID:       {ctx.run_id}")
+        click.echo(f"  Config hash:  {ctx.config_hash}")
+        click.echo(f"  Git commit:   {ctx.git_commit}")
+        click.echo(f"  Mode:         failure")
+        click.echo(f"  Artifacts:    {len(artifacts_df)}")
+        click.echo(f"  Output dir:   {ctx.raw_path}")
+
+        gate_results = failure_results.get("gates", {})
+        if gate_results:
+            click.echo("")
+            click.echo("Failure gates:")
+            for gate_name, gate_result in gate_results.items():
+                if isinstance(gate_result, dict):
+                    status = "PASS" if gate_result.get("passed", False) else "FAIL"
+                    details = gate_result.get("details", "")
+                    click.echo(f"  {gate_name}: {status} ({details})")
+
+        click.echo("=" * 60)
+        return
 
     # --- Hardware run mode (separate path) ---
     if has_hw:
@@ -87,7 +158,6 @@ def run(config_path: str):
         hw_results = run_hardware_pipeline(ctx, config)
 
         # Finalize
-        from sit.core.registry import finalize_run
         artifacts_df = finalize_run(ctx)
         a_path = artifact_path(ctx.run_id, ctx.output_dir, fmt)
         write_dataframe(artifacts_df, a_path, fmt)

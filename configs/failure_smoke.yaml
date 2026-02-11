@@ -1,0 +1,95 @@
+# SIT failure modes and ablation smoke configuration
+# Executes adversarial regimes designed to break assumptions,
+# runs full pipeline with injection/detection/mitigation,
+# and produces ablation matrix and failure taxonomy.
+
+seed: 123
+strict_mode: false
+latency_unit: "us"
+slo_us: 500000
+n_trials: 10
+output_dir: "data"
+export_format: "parquet"
+
+schedulers:
+  - "measurement_harness"
+
+regimes:
+  mode: "synthetic"
+  n_regimes: 2
+
+logging:
+  level: "INFO"
+
+run_mode: "failure"
+base_pipeline: "load"
+
+sim:
+  n_targets: 5
+  n_spectators: 20
+  n_regimes: 2
+  n_samples_per_micro_run: 2000
+
+  drift:
+    type: "linear"
+    a_us_per_step: 50.0
+
+  channels:
+    weights:
+      LLC: 1.0
+      MEM_BW: 1.2
+      IO: 0.7
+      TLB: 0.5
+      SMT: 0.6
+    scale_us: 100.0
+
+  toxic_pairs:
+    enabled: true
+    sparsity: 0.05
+    lognormal_mu: 0.0
+    lognormal_sigma: 0.7
+
+  queue:
+    enabled: true
+    concurrency: 16
+    think_time_us: 50.0
+
+  burst:
+    enabled: true
+    p_burst: 0.002
+    pareto_alpha: 2.5
+    scale_us: 5000.0
+
+  interactions:
+    enabled: false
+    gamma: 0.01
+
+# Failure injectors: each intentionally violates one SIT assumption
+injectors:
+  non_additive: true
+  dense_interference: true
+  fast_drift: true
+  regime_flip: true
+  probe_starvation: true
+  tail_starvation: true
+  capacity_overload: true
+
+# Ablation study: remove one component at a time
+ablations:
+  enabled: true
+  list:
+    - no_irbs
+    - no_uncertainty
+    - no_diversity
+    - no_regularization
+    - no_safety
+    - no_admission
+    - no_mitigation
+
+# Hard gates
+gates:
+  enable: true
+  require_detection: true
+  require_graceful_degradation: true
+  require_no_silent_catastrophes: true
+  cvar_tolerance: 0.10

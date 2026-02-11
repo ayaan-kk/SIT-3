@@ -1,0 +1,37 @@
+section,key,value
+gates,---,---
+gates,F1,PASS
+gates,F1_details,7/7 detected
+gates,F2,PASS
+gates,F2_details,0 violations across fallback ablations
+gates,F3,PASS
+gates,F3_details,0 silent out of 10 catastrophes
+failure_events,---,---
+failure_events,total_events,13
+failure_events,events_A1_additivity,1
+failure_events,events_A7_feasibility,7
+failure_events,events_A2_sparsity,1
+failure_events,events_A3_drift_smoothness,1
+failure_events,events_A4_stationarity,1
+failure_events,events_A5_coverage,1
+failure_events,events_A6_tail_validity,1
+taxonomy,---,---
+taxonomy,structural_A1_additivity,"severity=high, action=fallback"
+taxonomy,structural_A2_sparsity,"severity=medium, action=degrade"
+taxonomy,statistical_A3_drift_smoothness,"severity=high, action=fallback"
+taxonomy,statistical_A4_stationarity,"severity=medium, action=degrade"
+taxonomy,structural_A5_coverage,"severity=high, action=fallback"
+taxonomy,statistical_A6_tail_validity,"severity=medium, action=degrade"
+taxonomy,control_A7_feasibility,"severity=high, action=fallback"
+mitigations,---,---
+mitigations,total_mitigations,13
+ablations,---,---
+ablations,no_irbs,"delta_cvar=54986.41, delta_goodput=0.0000"
+ablations,no_uncertainty,"delta_cvar=0.00, delta_goodput=0.0000"
+ablations,no_diversity,"delta_cvar=0.00, delta_goodput=0.0000"
+ablations,no_regularization,"delta_cvar=0.00, delta_goodput=0.0000"
+ablations,no_safety,"delta_cvar=56050.67, delta_goodput=0.0000"
+ablations,no_admission,"delta_cvar=6795.46, delta_goodput=0.0000"
+ablations,no_mitigation,"delta_cvar=0.00, delta_goodput=0.0000"
+silent_catastrophes,---,---
+silent_catastrophes,count,0
