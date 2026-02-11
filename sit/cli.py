@@ -215,6 +215,17 @@ def run(config_path: str):
             register_artifact(ctx, tu_path, "derived")
             derived_count += 1
 
+    # Run stats pipeline if configured
+    has_stats = config.get("run_mode") == "stats" or "stats" in config
+    stats_results = None
+    if has_stats and has_sim:
+        from sit.stats.pipeline import run_stats_pipeline
+
+        click.echo("")
+        click.echo("Running statistical validation pipeline...")
+        stats_results = run_stats_pipeline(ctx, config, trials_df)
+        derived_count += len(stats_results.get("artifacts", []))
+
     # Finalize: write artifacts manifest
     artifacts_df = finalize_run(ctx)
     a_path = artifact_path(ctx.run_id, ctx.output_dir, fmt)
@@ -229,7 +240,7 @@ def run(config_path: str):
     click.echo(f"  Config hash:  {ctx.config_hash}")
     click.echo(f"  Git commit:   {ctx.git_commit}")
     click.echo(f"  Seed:         {ctx.seed}")
-    mode = "tomography" if has_tomo else ("simulator" if has_sim else "smoke")
+    mode = "stats" if has_stats else ("tomography" if has_tomo else ("simulator" if has_sim else "smoke"))
     click.echo(f"  Mode:         {mode}")
     click.echo(f"  Trials:       {len(trials_df)}")
     click.echo(f"  Decisions:    {len(decisions_df)}")
@@ -242,6 +253,17 @@ def run(config_path: str):
     click.echo("")
     click.echo("Validation:")
     click.echo(f"  {report.summary()}")
+
+    # Print stats gates if applicable
+    if stats_results is not None:
+        gate_results = stats_results.get("gates", {})
+        if gate_results:
+            click.echo("")
+            click.echo("Statistical gates:")
+            for gate_name, gate_result in gate_results.items():
+                if isinstance(gate_result, dict):
+                    status = gate_result.get("overall", "N/A")
+                    click.echo(f"  {gate_name}: {status}")
 
     # Run tomography gates if applicable
     if has_tomo and tomo_recovery_df is not None and len(tomo_recovery_df) > 0:

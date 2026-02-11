@@ -1,0 +1,101 @@
+# SIT statistical validation full configuration
+# Higher repeats and tighter thresholds for publication-grade validation.
+
+seed: 123
+strict_mode: true
+latency_unit: "us"
+slo_us: 500000
+n_trials: 50
+output_dir: "data"
+export_format: "parquet"
+
+schedulers:
+  - "measurement_harness"
+
+regimes:
+  mode: "synthetic"
+  n_regimes: 4
+
+logging:
+  level: "INFO"
+
+run_mode: "stats"
+base_pipeline: "load"
+
+sim:
+  n_targets: 10
+  n_spectators: 50
+  n_regimes: 4
+  n_samples_per_micro_run: 5000
+
+  drift:
+    type: "linear"
+    a_us_per_step: 50.0
+
+  channels:
+    weights:
+      LLC: 1.0
+      MEM_BW: 1.2
+      IO: 0.7
+      TLB: 0.5
+      SMT: 0.6
+    scale_us: 100.0
+
+  toxic_pairs:
+    enabled: true
+    sparsity: 0.05
+    lognormal_mu: 0.0
+    lognormal_sigma: 0.7
+
+  queue:
+    enabled: true
+    concurrency: 16
+    think_time_us: 50.0
+
+  burst:
+    enabled: true
+    p_burst: 0.002
+    pareto_alpha: 2.5
+    scale_us: 5000.0
+
+  interactions:
+    enabled: false
+    gamma: 0.01
+
+measurement:
+  alpha: 0.99
+  ci_resamples: 500
+  block_bootstrap: true
+  block_size: 64
+  n_irbs_pairs: 10
+  irbs:
+    drift_order: 1
+    design: "CTC"
+
+stats:
+  ci:
+    enabled: true
+    nominal: 0.95
+    repeats: 100
+    bootstrap_resamples: 500
+    reference_multiplier: 10
+    n_samples_base: 1000
+  evt:
+    enabled: true
+    threshold_quantiles: [0.88, 0.90, 0.92, 0.94, 0.95, 0.96]
+    min_exceedances: 500
+  effects:
+    baseline: "measurement_harness"
+    test: "wilcoxon"
+    fdr_q: 0.10
+  robustness:
+    enabled: true
+    beta_grid: [0.5, 0.75, 1.0, 1.5, 2.0, 3.0]
+    lambda_grid: [0.1, 0.2, 0.5, 0.75, 1.0]
+    tau_grid_us: [1000000, 1500000, 2000000, 2500000, 3000000]
+
+gates:
+  enable: true
+  min_coverage: 0.92
+  fdr_q: 0.10
+  evt_required: false
