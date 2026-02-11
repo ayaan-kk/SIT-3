@@ -77,6 +77,43 @@ def run(config_path: str):
     timestamp = ctx.created_at_utc
     has_sim = "sim" in config
     has_tomo = "tomography" in config
+    has_hw = config.get("run_mode") == "hardware"
+
+    # --- Hardware run mode (separate path) ---
+    if has_hw:
+        from sit.hardware.runner import run_hardware_pipeline
+
+        click.echo("Running hardware validation pipeline...")
+        hw_results = run_hardware_pipeline(ctx, config)
+
+        # Finalize
+        from sit.core.registry import finalize_run
+        artifacts_df = finalize_run(ctx)
+        a_path = artifact_path(ctx.run_id, ctx.output_dir, fmt)
+        write_dataframe(artifacts_df, a_path, fmt)
+
+        click.echo("")
+        click.echo("=" * 60)
+        click.echo("SIT Hardware Run Complete")
+        click.echo("=" * 60)
+        click.echo(f"  Run ID:       {ctx.run_id}")
+        click.echo(f"  Config hash:  {ctx.config_hash}")
+        click.echo(f"  Git commit:   {ctx.git_commit}")
+        click.echo(f"  Mode:         hardware")
+        click.echo(f"  Artifacts:    {len(artifacts_df)}")
+        click.echo(f"  Output dir:   {ctx.raw_path}")
+
+        gate_results = hw_results.get("gates", {})
+        if gate_results:
+            click.echo("")
+            click.echo("Hardware gates:")
+            for gate_name, gate_result in gate_results.items():
+                if isinstance(gate_result, dict):
+                    status = gate_result.get("status", "N/A")
+                    click.echo(f"  {gate_name}: {status}")
+
+        click.echo("=" * 60)
+        return
 
     if has_sim:
         # Full simulator pipeline
