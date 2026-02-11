@@ -1,0 +1,8 @@
+assumption_id,injected,detected,detection_rate
+A1_additivity,True,True,1.0
+A2_sparsity,True,True,1.0
+A3_drift_smoothness,True,True,1.0
+A4_stationarity,True,True,1.0
+A5_coverage,True,True,1.0
+A6_tail_validity,True,True,1.0
+A7_feasibility,True,True,1.0

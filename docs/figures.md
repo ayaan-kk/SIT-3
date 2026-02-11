@@ -13,7 +13,7 @@ SIT system is traceable to raw data through this manifest.
 **Config section:** `measurement.irbs`
 
 **Input datasets:**
-- `data/derived/25513fd8-b1aa-4c60-9632-e69893c7f460/irbs_estimates.parquet` (sha256: `d9b58fa77e46f202...`)
+- `data/derived/b3527710-ca31-402d-9286-2cdc1a36038d/irbs_estimates.parquet` (sha256: `d9b58fa77e46f202...`)
 
 **Interpretation:** Shows that IRBS C-T-C measurement reduces estimation bias by 3x+ vs naive time-separated A/B, validating the drift-canceling measurement layer.
 
@@ -28,7 +28,7 @@ SIT system is traceable to raw data through this manifest.
 **Config section:** `tomography`
 
 **Input datasets:**
-- `data/derived/22e8adc7-eae9-4aef-b24b-8c6f664a5117/tomo_recovery.parquet` (sha256: `a51bd8c2638845fc...`)
+- `tomo_recovery.parquet` (not yet generated)
 
 **Interpretation:** Demonstrates that elastic-net tomography recovers the top-k most interfering spectators with recall >= 0.95 and NDCG >= 0.95.
 
@@ -43,7 +43,7 @@ SIT system is traceable to raw data through this manifest.
 **Config section:** `stats.ci`
 
 **Input datasets:**
-- `data/derived/72cfc673-7136-4ebe-8496-ff64eb8fd360/ci_calibration.parquet` (sha256: `a1831111f6841f84...`)
+- `ci_calibration.parquet` (not yet generated)
 
 **Interpretation:** Validates that bootstrap CIs achieve nominal coverage (>= 0.90 at alpha=0.05), confirming statistical reliability of uncertainty estimates.
 
@@ -73,7 +73,7 @@ SIT system is traceable to raw data through this manifest.
 **Config section:** `ablations`
 
 **Input datasets:**
-- `data/derived/3d8b07f1-eaea-4217-bd15-093c41ac5ef5/ablation_results.parquet` (sha256: `700ad8f6f5cb4a07...`)
+- `ablation_results.parquet` (not yet generated)
 
 **Interpretation:** Quantifies the contribution of each SIT component. Adversarial ablations (no_safety, no_irbs) show large degradation; fallback ablations remain within tolerance.
 
@@ -88,8 +88,8 @@ SIT system is traceable to raw data through this manifest.
 **Config section:** `injectors`
 
 **Input datasets:**
-- `data/derived/3d8b07f1-eaea-4217-bd15-093c41ac5ef5/failure_taxonomy.parquet` (sha256: `1cbe6fb4f0da73d0...`)
-- `data/derived/3d8b07f1-eaea-4217-bd15-093c41ac5ef5/failure_events.parquet` (sha256: `eb4d2dacf5c5b710...`)
+- `failure_taxonomy.parquet` (not yet generated)
+- `failure_events.parquet` (not yet generated)
 
 **Interpretation:** Maps all 7 assumption violations to structural/statistical/control categories with severity-based action recommendations.
 
@@ -104,7 +104,7 @@ SIT system is traceable to raw data through this manifest.
 **Config section:** `stats.robustness`
 
 **Input datasets:**
-- `data/derived/72cfc673-7136-4ebe-8496-ff64eb8fd360/robustness_sweeps.parquet` (sha256: `b70d9c10d07ed2b0...`)
+- `robustness_sweeps.parquet` (not yet generated)
 
 **Interpretation:** Demonstrates that SIT metrics remain stable across reasonable parameter variations (beta, lambda, tau), confirming robustness of conclusions.
 

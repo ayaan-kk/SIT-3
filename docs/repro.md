@@ -36,25 +36,25 @@ available on all platforms.
 
 | Stage | Run ID | Config Hash | Status |
 |-------|--------|-------------|--------|
-| probe | 25513fd8-b1a... | 6e0ee932f6c4... | completed |
-| tomography | 22e8adc7-eae... | 0262ee5d7577... | completed |
-| scheduling | 055d375d-95f... | 6e0ee932f6c4... | completed |
-| load | ab8f1ffb-c07... | 6e0ee932f6c4... | completed |
-| stats | 72cfc673-713... | 070759be4c19... | completed |
-| failure | 3d8b07f1-eae... | 94a114aee0df... | completed |
-| hardware |  |  | skipped |
+| probe | N/A | N/A | not run |
+| tomography | N/A | N/A | not run |
+| scheduling | N/A | N/A | not run |
+| load | b3527710-ca3... | 6e0ee932f6c4... | completed |
+| stats | N/A | N/A | not run |
+| failure | N/A | N/A | not run |
+| hardware | N/A | N/A | not run |
 
 ## 5. Artifacts
 
-Total artifacts: 57
+Total artifacts: 14
 
-Manifest location: `data/derived/9a9a5e47-8d13-4ddc-81f2-0eca039cfff4/artifact_manifest.parquet`
+Manifest location: `data/derived/c0646a8c-ada0-4b35-be51-71568826d4bd/artifact_manifest.parquet`
 
 | Type | Count |
 |------|-------|
-| derived | 30 |
-| raw | 18 |
-| report | 9 |
+| report | 7 |
+| derived | 4 |
+| raw | 3 |
 
 ## 6. Known Limitations
 
@@ -76,6 +76,6 @@ For a reviewer to verify results:
 6. Review results/tables/final_summary.csv for key metrics
 7. Review results/reports/summary.md for narrative interpretation
 
-Master run ID: `9a9a5e47-8d13-4ddc-81f2-0eca039cfff4`
+Master run ID: `c0646a8c-ada0-4b35-be51-71568826d4bd`
 
-Generated at: 2026-02-11T04:09:21.298858+00:00
+Generated at: 2026-02-11T05:02:52.690479+00:00

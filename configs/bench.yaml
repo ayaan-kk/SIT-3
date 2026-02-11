@@ -1,0 +1,50 @@
+# SIT Full Benchmarking Configuration
+# Usage: sit bench --config configs/bench.yaml
+
+seed: 42
+strict_mode: true
+latency_unit: "us"
+slo_us: 500000
+n_trials: 200
+output_dir: "data"
+export_format: "parquet"
+
+schedulers:
+  - "measurement_harness"
+
+sim:
+  n_spectators: 20
+  n_targets: 5
+  n_regimes: 3
+  feature_dim: 4
+  n_samples_per_micro_run: 2000
+  queue:
+    enabled: true
+    concurrency: 16
+    think_time_us: 50.0
+  burst:
+    enabled: true
+    p_burst: 0.005
+    pareto_alpha: 2.0
+    scale_us: 5000.0
+  drift:
+    type: "linear"
+    a_us_per_step: 100.0
+  toxic_pairs:
+    enabled: true
+    sparsity: 0.05
+    lognormal_sigma: 0.8
+  interactions:
+    enabled: false
+    gamma: 0.0
+
+regimes:
+  mode: "synthetic"
+  n_regimes: 3
+
+bench:
+  n_episodes_per_config: 200
+  output_dir: "results/bench"
+
+logging:
+  level: "INFO"

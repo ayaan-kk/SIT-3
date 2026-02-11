@@ -600,6 +600,67 @@ def repro(config_path: str):
     click.echo("=" * 60)
 
 
+@cli.command()
+@click.option(
+    "--config",
+    "config_path",
+    required=True,
+    type=click.Path(exists=True),
+    help="Path to bench YAML configuration file.",
+)
+@click.option(
+    "--output-dir",
+    default="results/bench",
+    help="Output directory for bench results.",
+)
+def bench(config_path: str, output_dir: str):
+    """Run the full benchmarking pipeline.
+
+    Evaluates all scheduling policies across interference and load regimes,
+    computes statistics, generates figures, and produces a LaTeX paper.
+
+    Usage: sit bench --config configs/bench.yaml
+    """
+    reset_logging()
+
+    from sit.bench.pipeline import run_bench_pipeline
+
+    config = load_config(config_path)
+
+    click.echo("Running full benchmarking pipeline...")
+    click.echo("This evaluates all policies across all regimes.")
+    click.echo("")
+
+    result = run_bench_pipeline(config, output_dir=output_dir)
+
+    click.echo("")
+    click.echo("=" * 60)
+    click.echo("SIT Benchmarking Pipeline Complete")
+    click.echo("=" * 60)
+    click.echo(f"  Total rows:    {result['n_rows']}")
+    click.echo(f"  Policies:      {result['n_policies']}")
+    click.echo(f"  Figures:       {result['n_figures']}")
+    click.echo(f"  Stats files:   {result['n_stats_files']}")
+    click.echo(f"  Paper:         {result['paper_path']}")
+    click.echo(f"  Elapsed:       {result['elapsed_s']}s")
+    click.echo("")
+
+    # Print acceptance criteria
+    criteria = result.get("criteria", {})
+    n_pass = sum(1 for k, v in criteria.items() if k != "_summary" and v.get("passed"))
+    n_total = sum(1 for k in criteria if k != "_summary")
+    click.echo(f"Acceptance criteria: {n_pass}/{n_total} passed")
+    for cid, cval in sorted(criteria.items()):
+        if cid == "_summary":
+            continue
+        status = "PASS" if cval.get("passed") else "FAIL"
+        click.echo(f"  {cid}: {status} - {cval.get('details', '')}")
+
+    click.echo("")
+    click.echo(f"Output dir: {output_dir}")
+    click.echo("=" * 60)
+
+
 def main():
     """Entry point for the SIT CLI."""
     cli()

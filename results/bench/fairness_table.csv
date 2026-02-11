@@ -1,0 +1,20 @@
+policy,uses_probes,uses_hw_counters,uses_uncertainty,uses_ground_truth,information_level,advantaged
+SIT-safe,True,False,True,False,estimated,False
+SIT-no-IRBS,True,False,True,False,biased,False
+SIT-no-safety,True,False,False,False,estimated,False
+SIT-no-admission,True,False,True,False,estimated,False
+partition,False,False,False,False,none,False
+spread,False,False,False,False,none,False
+random,False,False,False,False,none,False
+round-robin,False,False,False,False,none,False
+binpack-greedy,False,False,False,False,resource_proxy,False
+tail-greedy,False,False,False,True,advantaged,True
+similarity-avoidance,False,False,False,False,features,False
+admission-only,False,False,False,False,partial,False
+oracle,False,True,False,True,full (upper bound),True
+static-low,False,False,False,False,none,False
+static-high,False,False,False,False,none,False
+k8s-hpa,False,False,False,False,utilization,False
+k8s-default,False,False,False,False,resource_fit,False
+slurm-fcfs,False,False,False,False,none,False
+triton-proxy,False,False,False,False,batching,False
